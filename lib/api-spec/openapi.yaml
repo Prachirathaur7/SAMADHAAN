@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: NagarDrishti AI — GIS Map API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: map
+    description: GIS map data — heatmap, clusters, ward overlays
+  - name: complaints
+    description: Complaint filing and retrieval
 paths:
   /healthz:
     get:
@@ -24,6 +28,217 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /map/heatmap:
+    get:
+      operationId: getHeatmap
+      tags: [map]
+      summary: Get complaint heatmap points
+      description: Returns weighted lat/lng points for heatmap rendering. Weight is 0.0–1.0 based on complaint count and severity.
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [road, water, garbage, drainage, electricity, other, all]
+          required: false
+        - name: hours
+          in: query
+          description: Time window in hours (24, 48, 168 for 7 days)
+          schema:
+            type: number
+          required: false
+      responses:
+        "200":
+          description: Array of heatmap points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HeatmapPoint"
+
+  /map/clusters:
+    get:
+      operationId: getClusters
+      tags: [map]
+      summary: Get complaint clusters for current map view
+      parameters:
+        - name: swLat
+          in: query
+          schema: { type: number }
+          required: true
+        - name: swLng
+          in: query
+          schema: { type: number }
+          required: true
+        - name: neLat
+          in: query
+          schema: { type: number }
+          required: true
+        - name: neLng
+          in: query
+          schema: { type: number }
+          required: true
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [road, water, garbage, drainage, electricity, other, all]
+          required: false
+      responses:
+        "200":
+          description: Complaint clusters within bounding box
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplaintCluster"
+
+  /map/wards:
+    get:
+      operationId: getWardStatus
+      tags: [map]
+      summary: Get ward boundaries with complaint severity overlay
+      responses:
+        "200":
+          description: GeoJSON-compatible ward features with severity data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WardStatus"
+
+  /map/nearby:
+    get:
+      operationId: getNearbyComplaints
+      tags: [map]
+      summary: Get complaints near a location
+      parameters:
+        - name: lat
+          in: query
+          schema: { type: number }
+          required: true
+        - name: lng
+          in: query
+          schema: { type: number }
+          required: true
+        - name: radiusKm
+          in: query
+          schema: { type: number }
+          required: false
+      responses:
+        "200":
+          description: Complaints within the radius
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NearbyComplaint"
+
+  /map/emergency-services:
+    get:
+      operationId: getEmergencyServices
+      tags: [map]
+      summary: Get nearby emergency services for SOS
+      parameters:
+        - name: lat
+          in: query
+          schema: { type: number }
+          required: true
+        - name: lng
+          in: query
+          schema: { type: number }
+          required: true
+      responses:
+        "200":
+          description: Nearest emergency services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmergencyService"
+
+  /map/stats:
+    get:
+      operationId: getMapStats
+      tags: [map]
+      summary: Get city-level complaint statistics for dashboard header
+      responses:
+        "200":
+          description: Aggregate complaint stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapStats"
+
+  /complaints:
+    get:
+      operationId: listComplaints
+      tags: [complaints]
+      summary: List all complaints
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, assigned, in_progress, resolved, all]
+          required: false
+        - name: category
+          in: query
+          schema: { type: string }
+          required: false
+      responses:
+        "200":
+          description: List of complaints
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Complaint"
+    post:
+      operationId: createComplaint
+      tags: [complaints]
+      summary: File a new complaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplaintInput"
+      responses:
+        "201":
+          description: Complaint created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Complaint"
+
+  /complaints/{id}:
+    get:
+      operationId: getComplaint
+      tags: [complaints]
+      summary: Get single complaint detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Complaint detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Complaint"
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +249,183 @@ components:
       required:
         - status
 
+    HeatmapPoint:
+      type: object
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+        weight:
+          type: number
+          description: 0.0–1.0, intensity for heatmap rendering
+      required: [lat, lng, weight]
+
+    ComplaintCluster:
+      type: object
+      properties:
+        id:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        count:
+          type: number
+        topCategory:
+          type: string
+        topSeverity:
+          type: string
+          enum: [low, medium, high, critical]
+        wardName:
+          type: string
+        ids:
+          type: array
+          items:
+            type: string
+      required: [id, lat, lng, count, topCategory, topSeverity, wardName, ids]
+
+    WardStatus:
+      type: object
+      properties:
+        wardId:
+          type: string
+        wardName:
+          type: string
+        complaintCount:
+          type: number
+        criticalCount:
+          type: number
+        severityLevel:
+          type: string
+          enum: [none, low, medium, high, critical]
+        centerLat:
+          type: number
+        centerLng:
+          type: number
+        boundaryCoords:
+          type: array
+          description: Array of [lat, lng] pairs forming the ward boundary polygon
+          items:
+            type: array
+            items:
+              type: number
+      required: [wardId, wardName, complaintCount, criticalCount, severityLevel, centerLat, centerLng, boundaryCoords]
+
+    NearbyComplaint:
+      type: object
+      properties:
+        id:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        category:
+          type: string
+          enum: [road, water, garbage, drainage, electricity, other]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [open, assigned, in_progress, resolved]
+        description:
+          type: string
+        wardName:
+          type: string
+        reporterCount:
+          type: number
+        reportedAt:
+          type: string
+          format: date-time
+        distanceKm:
+          type: number
+      required: [id, lat, lng, category, severity, status, description, wardName, reporterCount, reportedAt, distanceKm]
+
+    EmergencyService:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [police, hospital, fire_station, municipal]
+        lat:
+          type: number
+        lng:
+          type: number
+        phone:
+          type: string
+        distanceKm:
+          type: number
+      required: [id, name, type, lat, lng, phone, distanceKm]
+
+    MapStats:
+      type: object
+      properties:
+        totalOpen:
+          type: number
+        totalCritical:
+          type: number
+        totalResolved:
+          type: number
+        activeWards:
+          type: number
+        last24hCount:
+          type: number
+      required: [totalOpen, totalCritical, totalResolved, activeWards, last24hCount]
+
+    Complaint:
+      type: object
+      properties:
+        id:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        category:
+          type: string
+          enum: [road, water, garbage, drainage, electricity, other]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [open, assigned, in_progress, resolved]
+        description:
+          type: string
+        wardName:
+          type: string
+        wardId:
+          type: string
+        reporterCount:
+          type: number
+        reportedAt:
+          type: string
+          format: date-time
+        imageUrl:
+          type: ["string", "null"]
+        aiCategory:
+          type: ["string", "null"]
+          description: AI-detected category from image or voice
+      required: [id, lat, lng, category, severity, status, description, wardName, wardId, reporterCount, reportedAt]
+
+    ComplaintInput:
+      type: object
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+        category:
+          type: string
+          enum: [road, water, garbage, drainage, electricity, other]
+        description:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+      required: [lat, lng, category, description]

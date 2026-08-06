@@ -1,0 +1,2 @@
+- [Orval integer types](orval-integer-types.md) — use `type: number` not `type: integer` in openapi.yaml; Orval generates `zod.int()` (Zod v4) which breaks Zod v3
+- [Leaflet useMap placement](leaflet-usemap-placement.md) — components using `useMap()` must be direct children of MapContainer, not siblings rendered outside it

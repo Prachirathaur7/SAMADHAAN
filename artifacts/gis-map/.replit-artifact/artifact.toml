@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "NagarDrishti — Live Map"
+description = "Citizen-facing GIS live map showing complaint heatmap, problem zones, ward severity overlays, cluster markers, and SOS emergency services. Built with Leaflet + OpenStreetMap. Designed to integrate into the NagarDrishti AI platform."
+version = "1.0.0"
+id = "artifacts/gis-map"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25205
+
+[services.development]
+run = "pnpm --filter @workspace/gis-map run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/gis-map", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/gis-map/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25205"
+BASE_PATH = "/"
