@@ -11,7 +11,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ComplaintInputCategory } from '@workspace/api-client-react';
-import { useMap } from 'react-leaflet';
 
 const formSchema = z.object({
   category: z.enum(['road', 'water', 'garbage', 'drainage', 'electricity', 'other'] as const),
