@@ -1,4 +1,4 @@
-# NagarDrishti AI — GIS Live Map Module
+# SAMADHAAN — GIS Live Map Module
 ## Technical Workflow & Implementation Guide
 **Module Owner: [Your Name] | Role: GIS Feature Developer**
 
@@ -6,7 +6,7 @@
 
 ## What This Module Does
 
-The GIS Live Map is the spatial intelligence layer of NagarDrishti. It gives citizens a visual answer to:
+The GIS Live Map is the spatial intelligence layer of SAMADHAAN. It gives citizens a visual answer to:
 - *"Is my area already being dealt with?"*
 - *"Where are the active problem zones near me?"*
 - *"Should I file this complaint or has someone already?"*
@@ -455,4 +455,4 @@ npm install -D @types/leaflet.markercluster
 
 ---
 
-*GIS Module — NagarDrishti AI | Built with Leaflet + OpenStreetMap + PostGIS*
+*GIS Module — SAMADHAAN | Built with Leaflet + OpenStreetMap + PostGIS*

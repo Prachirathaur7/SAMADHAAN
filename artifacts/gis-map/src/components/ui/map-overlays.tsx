@@ -14,7 +14,7 @@ function StatsHeader() {
     <div className="absolute top-4 left-4 right-4 z-[1000] flex justify-between items-start pointer-events-none">
       <div className="pointer-events-auto">
         <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-md">
-          Nagar<span className="text-primary">Drishti</span>
+          SAM<span className="text-primary">ADHAAN</span>
         </h1>
         <p className="text-xs text-white/70 font-medium tracking-wider uppercase drop-shadow-md mt-1">Live Intelligence</p>
       </div>

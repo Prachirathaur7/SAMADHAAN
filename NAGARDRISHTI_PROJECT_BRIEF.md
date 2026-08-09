@@ -1,4 +1,4 @@
-# NAGARDRISHTI AI
+# SAMADHAAN
 ## Project Brief & Vision Document
 **Version 1.0 — SIH 2024 Submission**
 
@@ -38,9 +38,9 @@ When a road floods, it involves PWD, drainage, traffic police, and NDRF — four
 
 ---
 
-## Our Answer: NagarDrishti AI
+## Our Answer: SAMADHAAN
 
-**NagarDrishti is not a complaint portal. It is the missing intelligence layer between citizens and government.**
+**SAMADHAAN is not a complaint portal. It is the missing intelligence layer between citizens and government.**
 
 It does three things no existing platform does:
 
@@ -281,4 +281,4 @@ This is the story. Everything else supports this story.
 
 ---
 
-*NagarDrishti AI — Built for SIH. Designed for India.*
+*SAMADHAAN — Built for SIH. Designed for India.*

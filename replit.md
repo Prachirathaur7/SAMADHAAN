@@ -1,6 +1,6 @@
-# NagarDrishti AI — GIS Live Map Module
+# SAMADHAAN — GIS Live Map Module
 
-AI-powered civic grievance platform. This repo contains the GIS Live Map module — the real-time citizen-facing map showing complaint heatmaps, ward severity overlays, and SOS emergency services.
+SAMADHAAN is an AI-powered civic grievance platform. This repo contains the GIS Live Map module — the real-time citizen-facing map showing complaint heatmaps, ward severity overlays, and SOS emergency services.
 
 ## Run & Operate
 
