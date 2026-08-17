@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/jpeg" href="/assets/logo/samadhan_logo.jpeg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#082b53" />
+    <title>Samadhaan · Smart Governance & Citizen Services</title>
+    <meta name="description" content="Samadhaan — AI-Powered Smart Governance & Citizen Grievance Management Platform. Aapki Shikayat, Hamari Zimmedari. Prototype for Smart India Hackathon Demonstration." />
+    <link rel="stylesheet" href="/app.css" />
+    <meta property="og:image" content="https://bolt.new/static/og_default.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://bolt.new/static/og_default.png">
+</head>
+  <body>
+
+    <!-- ===== Splash Screen ===== -->
+    <div id="splash">
+      <img src="/assets/logo/samadhan_logo.jpeg" alt="Samadhaan logo" />
+      <h1>SAMADHAAN</h1>
+      <p>Aapki Shikayat, Hamari Zimmedari</p>
+      <div class="bar"><i></i></div>
+    </div>
+
+    <!-- ===== Topbar ===== -->
+    <header class="topbar">
+      <button class="mobile-menu" onclick="toggleMobileNav()">☰</button>
+      <div class="brand">
+        <img src="/assets/logo/samadhan_logo.jpeg" alt="Samadhaan logo" />
+        <div><strong>SAMADHAAN</strong><small>Aapki Shikayat, Hamari Zimmedari</small></div>
+      </div>
+      <div class="topbar-info"><span class="dot"></span> Demo mode <span style="margin:0 4px;color:var(--border)">|</span> Last updated 2 min ago</div>
+      <div class="topbar-actions">
+        <button class="icon-btn" onclick="openModal('ai-modal')" title="Samadhaan AI">🤖</button>
+        <button class="icon-btn" onclick="openModal('notif-modal')" title="Notifications">🔔<i class="badge">3</i></button>
+        <button class="icon-btn" onclick="openModal('lang-modal')" title="Language">🌐</button>
+        <button class="icon-btn" onclick="toggleTheme()" title="Dark mode">🌙</button>
+        <button class="icon-btn" onclick="openModal('a11y-modal')" title="Accessibility">♿</button>
+        <div style="height:36px;display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:9px;padding:0 8px">
+          <span>👤</span>
+          <select id="role-select" onchange="setRole(this.value)">
+            <option value="citizen">Citizen view</option>
+            <option value="officer">Officer view</option>
+            <option value="admin">Admin view</option>
+          </select>
+        </div>
+        <div id="logged-user" style="display:none;height:36px;align-items:center;gap:8px;border:1px solid var(--border);border-radius:9px;padding:0 10px;cursor:pointer" onclick="logout()" title="Logout">
+          <span style="font-size:13px" id="logged-name">User</span>
+          <span style="font-size:11px;color:var(--muted)">↗</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== Citizen App ===== -->
+    <div class="app" id="app-citizen">
+      <aside class="sidebar" id="citizen-sidebar"></aside>
+      <main class="main" id="citizen-content"></main>
+    </div>
+
+    <!-- ===== Officer App ===== -->
+    <div class="app" id="app-officer">
+      <main class="main-full" id="officer-content"></main>
+    </div>
+
+    <!-- ===== Admin App ===== -->
+    <div class="app" id="app-admin">
+      <aside class="sidebar" style="background:#08294d;color:#b4c9db">
+        <div class="brand"><img src="/assets/logo/samadhan_logo.jpeg" alt="Samadhaan logo" /><div><strong style="color:#fff">SAMADHAAN</strong><small style="color:#88a9c0">Governance Command Center</small></div></div>
+        <div class="sb-label" style="color:#6e92ad;margin-top:24px">NAVIGATION</div>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('overview')"><span class="ico">📊</span> Overview</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('complaints')"><span class="ico">📋</span> Complaints</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('departments')"><span class="ico">🏛️</span> Departments <span class="sb-count" style="background:#123f65;color:#9fc2d9">65</span></button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('officers')"><span class="ico">👮</span> Officers</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('overview')"><span class="ico">📈</span> Analytics</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="navAdmin('overview')"><span class="ico">🤖</span> AI Insights <span class="sb-count" style="background:var(--orange);color:#fff">New</span></button>
+        <div class="sb-divider" style="border-color:#214664"></div>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="toast('Reports opened (demo)')"><span class="ico">📄</span> Reports</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="openModal('notif-modal')"><span class="ico">🔔</span> Notifications</button>
+        <button class="sb-btn" style="color:#a6bfd2" onclick="openModal('a11y-modal')"><span class="ico">⚙️</span> Settings</button>
+        <button class="sb-btn" style="color:#e88080" onclick="logout()"><span class="ico">🚪</span> Logout</button>
+        <div style="margin-top:auto;padding:12px 10px;font-size:9px;color:#7899b2">Prototype for Smart India Hackathon Demonstration</div>
+      </aside>
+      <main class="main" id="admin-content"></main>
+    </div>
+
+    <!-- ===== Footer (shown inside each main) ===== -->
+
+    <!-- ===== AI Assistant FAB ===== -->
+    <div class="ai-fab"><button onclick="openModal('ai-modal')"><span class="ai-ico">🤖</span><span>Samadhaan AI</span></button></div>
+
+    <!-- ===== AI Modal ===== -->
+    <div class="modal-bg" id="ai-modal">
+      <div class="modal">
+        <div class="modal-h"><h2>🤖 Samadhaan AI</h2><button class="close" onclick="closeModal('ai-modal')">×</button></div>
+        <div style="display:flex;gap:12px;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--border)">
+          <img src="/assets/logo/samadhan_logo.jpeg" style="height:40px;width:40px;border-radius:50%" alt="Samadhaan" />
+          <div><strong style="font-size:13px">Namaste, Prachi</strong><p style="font-size:11px;color:var(--muted);margin:3px 0 0">How can I help you today?</p></div>
+        </div>
+        <div class="chat-bubble chat-ai">🤖 You can ask me about reporting a problem, tracking a complaint, or finding the right department.</div>
+        <div class="sugg" style="margin-top:14px">
+          <button onclick="toast('AI: To file a complaint, click Report a Problem.')">How do I file a complaint? →</button>
+          <button onclick="toast('AI: Please enter your Grievance ID in Track Complaint.')">Where is my complaint? →</button>
+          <button onclick="toast('AI: Garbage is handled by Solid Waste Management.')">Which department handles garbage? →</button>
+          <button onclick="toast('AI: मेरी शिकायत कैसे दर्ज करें? Report a Problem पर क्लिक करें।')">मेरी शिकायत कैसे दर्ज करें? →</button>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:14px">
+          <input style="flex:1;border:1px solid var(--border);border-radius:8px;padding:0 10px;font-size:12px" placeholder="Type your question..." />
+          <button class="btn btn-blue" onclick="toast('Message sent to AI')">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Language Modal ===== -->
+    <div class="modal-bg" id="lang-modal">
+      <div class="modal">
+        <div class="modal-h"><h2>🌐 Choose Your Language</h2><button class="close" onclick="closeModal('lang-modal')">×</button></div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:14px">Select your preferred language. You can change it anytime.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-outline" onclick="setLang('en')">English</button>
+          <button class="btn btn-outline" onclick="setLang('hi')">हिन्दी</button>
+          <button class="btn btn-outline" onclick="setLang('bn')">বাংলা</button>
+          <button class="btn btn-outline" onclick="setLang('mr')">मराठी</button>
+          <button class="btn btn-outline" onclick="setLang('ta')">தமிழ்</button>
+          <button class="btn btn-outline" onclick="setLang('te')">తెలుగు</button>
+          <button class="btn btn-outline" onclick="setLang('gu')">ગુજરાતી</button>
+          <button class="btn btn-outline" onclick="setLang('kn')">ಕನ್ನಡ</button>
+          <button class="btn btn-outline" onclick="setLang('ml')">മലയാളം</button>
+          <button class="btn btn-outline" onclick="setLang('pa')">ਪੰਜਾਬੀ</button>
+          <button class="btn btn-outline" onclick="setLang('or')">ଓଡ଼ିଆ</button>
+          <button class="btn btn-outline" onclick="setLang('ur')">اردو</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Accessibility Modal ===== -->
+    <div class="modal-bg" id="a11y-modal">
+      <div class="modal">
+        <div class="modal-h"><h2>♿ Accessibility Settings</h2><button class="close" onclick="closeModal('a11y-modal')">×</button></div>
+        <div class="set-row"><span>🔊 Text to speech</span><div class="toggle" onclick="this.classList.toggle('on');toast('Text to speech toggled')"><i></i></div></div>
+        <div class="set-row"><span>🌙 Dark appearance</span><div class="toggle" id="dark-toggle" onclick="toggleTheme();this.classList.toggle('on')"><i></i></div></div>
+        <div class="set-row"><span>⚡ Reduced motion</span><div class="toggle" onclick="this.classList.toggle('on');toast('Reduced motion toggled')"><i></i></div></div>
+        <div class="set-row"><span>🔤 Font size</span><div style="display:flex;gap:6px"><button class="btn btn-outline" style="height:28px;font-size:10px;padding:0 8px" onclick="document.body.style.fontSize='14px';toast('Font size: normal')">Normal</button><button class="btn btn-outline" style="height:28px;font-size:10px;padding:0 8px" onclick="document.body.style.fontSize='16px';toast('Font size: large')">Large</button><button class="btn btn-outline" style="height:28px;font-size:10px;padding:0 8px" onclick="document.body.style.fontSize='18px';toast('Font size: extra large')">Extra Large</button></div></div>
+        <div style="display:flex;align-items:center;gap:7px;background:#eff9f4;color:#488170;border-radius:7px;padding:10px;margin-top:14px;font-size:10px">🔒 Settings are saved for this demo session.</div>
+      </div>
+    </div>
+
+    <!-- ===== Notifications Modal ===== -->
+    <div class="modal-bg" id="notif-modal">
+      <div class="modal">
+        <div class="modal-h"><h2>🔔 Notifications</h2><button class="close" onclick="closeModal('notif-modal')">×</button></div>
+        <div style="display:flex;gap:8px;margin-bottom:14px"><button class="btn btn-outline" style="height:30px;font-size:10px" onclick="toast('All marked as read')">Mark all read</button></div>
+        <div style="display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)"><span style="font-size:16px">✓</span><div style="flex:1"><strong style="font-size:12px">Complaint assigned</strong><p style="font-size:10px;color:var(--muted);margin:3px 0">SAM-2026-UP-000124 has been assigned to Roads & Highways.</p><small style="font-size:9px;color:#96a5b4">1 hour ago</small></div></div>
+        <div style="display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)"><span style="font-size:16px">⚠️</span><div style="flex:1"><strong style="font-size:12px">SLA warning</strong><p style="font-size:10px;color:var(--muted);margin:3px 0">Your complaint is approaching the SLA deadline.</p><small style="font-size:9px;color:#96a5b4">3 hours ago</small></div></div>
+        <div style="display:flex;gap:10px;padding:12px 0"><span style="font-size:16px">🔔</span><div style="flex:1"><strong style="font-size:12px">New government notice</strong><p style="font-size:10px;color:var(--muted);margin:3px 0">Monsoon preparedness advisory has been published.</p><small style="font-size:9px;color:#96a5b4">Yesterday</small></div></div>
+      </div>
+    </div>
+
+    <!-- ===== SOS Confirm Modal ===== -->
+    <div class="modal-bg" id="sos-confirm">
+      <div class="modal" style="max-width:340px;text-align:center">
+        <div style="font-size:48px;margin:10px 0">🆘</div>
+        <h2 style="font-family:Manrope;font-size:20px;color:#c9534d;margin-bottom:8px">Confirm SOS</h2>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:18px">This will share your location with emergency services. Are you sure?</p>
+        <div style="display:flex;gap:10px"><button class="btn btn-outline" style="flex:1" onclick="closeModal('sos-confirm')">Cancel</button><button class="btn btn-primary" style="flex:1;background:#c9534d" onclick="closeModal(&#39;sos-confirm&#39;);toast(&#39;SOS sent! Emergency services notified (demo)&#39;)">Send SOS</button></div>
+      </div>
+    </div>
+
+    <!-- ===== Toast ===== -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ===== Scripts ===== -->
+    <script src="/app.js"></script>
+  </body>
+</html>
