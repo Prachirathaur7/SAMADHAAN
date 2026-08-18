@@ -26,7 +26,7 @@ Verification:
 
 Demo credentials:
 - Email: citizen@samadhaan.gov.in
-- Password: citizen123
+- Password: [REDACTED]
 
 ## API Security Review
 The reviewed API server uses CORS, request logging, JSON parsing and URL-encoded request parsing.
