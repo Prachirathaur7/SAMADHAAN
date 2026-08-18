@@ -386,22 +386,36 @@ router.post("/complaints", async (req, res) => {
 // ── GET /api/complaints/:id ──────────────────────────────────────────────────
 router.get("/complaints/:id", async (req, res) => {
   const { id } = req.params;
-  const [row] = await db
-    .select()
-    .from(complaintsTable)
-    .where(eq(complaintsTable.id, id));
 
-  if (!row) {
-    res.status(404).json({ error: "Complaint not found" });
+  // Validate UUID before querying PostgreSQL.
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!uuidRegex.test(id)) {
+    res.status(400).json({ error: "Invalid complaint ID" });
     return;
   }
 
-  res.json({
-    ...row,
-    lat: parseFloat(row.lat),
-    lng: parseFloat(row.lng),
-    reportedAt: row.reportedAt.toISOString(),
-  });
-});
+  try {
+    const [row] = await db
+      .select()
+      .from(complaintsTable)
+      .where(eq(complaintsTable.id, id));
 
+    if (!row) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    res.json({
+      ...row,
+      lat: parseFloat(row.lat),
+      lng: parseFloat(row.lng),
+      reportedAt: row.reportedAt.toISOString(),
+    });
+  } catch (error) {
+    console.error("Failed to fetch complaint:", error);
+    res.status(500).json({ error: "Failed to fetch complaint" });
+  }
+});
 export default router;
