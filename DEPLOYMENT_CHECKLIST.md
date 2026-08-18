@@ -105,6 +105,14 @@ Verified functionality includes:
 - Report-a-problem flow
 - Live statistics
 
+### Error Handling
+
+**Status:** PARTIALLY VERIFIED
+
+Invalid complaint IDs are validated by the API before database queries. The source-code fix was typechecked, built, committed, and pushed successfully.
+
+Production verification of the malformed complaint-ID request remains unresolved because the published endpoint currently returns an Internal Server Error. This edge case is not blocking the verified health, map statistics, ward, database, or frontend/backend integration functionality.
+
 ## Production Readiness
 
 **Status:** DEPLOYED - PRODUCTION VERIFICATION PARTIALLY COMPLETE
