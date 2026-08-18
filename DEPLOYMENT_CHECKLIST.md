@@ -113,6 +113,16 @@ Invalid complaint IDs are validated by the API before database queries. The sour
 
 Production verification of the malformed complaint-ID request remains unresolved because the published endpoint currently returns an Internal Server Error. This edge case is not blocking the verified health, map statistics, ward, database, or frontend/backend integration functionality.
 
+### Monitoring and Backup
+
+**Monitoring Status:** PARTIALLY VERIFIED
+
+Application logging is configured and the published Replit deployment provides runtime/resource monitoring. Production deployment status and resource usage were checked successfully.
+
+**Backup Status:** NOT INDEPENDENTLY VERIFIED
+
+The production PostgreSQL database is connected and operational. A separate backup and restore procedure has not been independently executed or verified for this project. No backup claim is being made until a restore test is completed.
+
 ## Production Readiness
 
 **Status:** DEPLOYED - PRODUCTION VERIFICATION PARTIALLY COMPLETE
