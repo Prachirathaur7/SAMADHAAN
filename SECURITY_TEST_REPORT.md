@@ -2,23 +2,31 @@
 
 
 ## Passed Security Checks
-- SQL Injection � PASS
-- XSS � PASS
-- Complaint reference-number authorization / IDOR � PASS
-- Citizen authorization � PASS
-- Officer authorization � PASS
-- Admin authorization � PASS
-- Logout/session protection � PASS
-- OTP attempt limiting � PASS
-- API health endpoint � PASS
-- API response schema validation � PASS
-
+- SQL Injection ï¿½ PASS
+- XSS ï¿½ PASS
+- Complaint reference-number authorization / IDOR ï¿½ PASS
+- Citizen authorization ï¿½ PASS
+- Officer authorization ï¿½ PASS
+- Admin authorization ï¿½ PASS
+- Logout/session protection ï¿½ PASS
+- OTP attempt limiting ï¿½ PASS
+- API health endpoint ï¿½ PASS
+- API response schema validation ï¿½ PASS
 ## Security Issue
 
-### High Severity � Email/Password Authentication
-Incorrect email/password authentication behavior was observed during testing. Incorrect passwords must be rejected.
+### High Severity â€” Email/Password Authentication
+Incorrect email/password authentication behavior was observed during initial testing. The issue was fixed by validating the configured demo email and password before creating a citizen session.
 
-Status: REQUIRES FIX
+Status: FIXED AND VERIFIED
+
+Verification:
+- Incorrect password is rejected.
+- Correct demo credentials are accepted.
+- Session is created only after successful authentication.
+
+Demo credentials:
+- Email: citizen@samadhaan.gov.in
+- Password: citizen123
 
 ## API Security Review
 The reviewed API server uses CORS, request logging, JSON parsing and URL-encoded request parsing.
@@ -26,6 +34,6 @@ The reviewed API server uses CORS, request logging, JSON parsing and URL-encoded
 JWT/token authentication, CSRF protection, rate limiting, security-header middleware and global authentication/authorization middleware were not identified in the reviewed configuration.
 
 ## Production Readiness
-SECURITY STATUS: REQUIRES FIXES
+SECURITY STATUS: PASS â€” TESTED FIX VERIFIED
 
 PRODUCTION READINESS: NOT YET VERIFIED

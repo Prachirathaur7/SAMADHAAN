@@ -720,9 +720,36 @@ function resendOtp() {
 function loginDirect() {
   const e = $('#auth-email');
   const p = $('#auth-pass');
-  if (!e || !/^\S+@\S+\.\S+$/.test(e.value.trim())) { toast('Please enter a valid email address'); return; }
-  if (!p || !p.value) { toast('Please enter your password'); return; }
-  const userData = { name: 'Prachi Sharma', mobile: '9876543210', email: e.value, location: 'Kanpur, Uttar Pradesh', role: 'CITIZEN' };
+
+  if (!e || !/^\S+@\S+\.\S+$/.test(e.value.trim())) {
+    toast('Please enter a valid email address');
+    return;
+  }
+
+  if (!p || !p.value) {
+    toast('Please enter your password');
+    return;
+  }
+
+  const DEMO_EMAIL = 'citizen@samadhaan.gov.in';
+  const DEMO_PASSWORD = 'citizen123';
+
+  if (
+    e.value.trim().toLowerCase() !== DEMO_EMAIL ||
+    p.value !== DEMO_PASSWORD
+  ) {
+    toast('Invalid email or password');
+    return;
+  }
+
+  const userData = {
+    name: 'Prachi Sharma',
+    mobile: '9876543210',
+    email: e.value.trim(),
+    location: 'Kanpur, Uttar Pradesh',
+    role: 'CITIZEN'
+  };
+
   createSession('citizen', userData);
   State.user = userData;
   State.role = 'citizen';
