@@ -1,5 +1,5 @@
 [build]
-  command = "corepack enable && pnpm install --prod=false --frozen-lockfile && pnpm --filter @workspace/gis-map build"
+  command = "pnpm install --prod=false --frozen-lockfile && pnpm --filter @workspace/gis-map build"
   publish = "artifacts/gis-map/dist/public"
 
 [build.environment]
