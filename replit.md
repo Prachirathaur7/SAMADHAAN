@@ -23,6 +23,16 @@ SAMADHAAN is an AI-powered civic grievance platform. This repo contains the GIS 
 - **API codegen**: Orval (from OpenAPI spec in lib/api-spec/openapi.yaml)
 - **Frontend**: React + Vite + TanStack Query + Tailwind
 
+## AI service integration
+
+The GIS API calls the separate FastAPI service for complaint analysis when `AI_ENGINE_URL` is set. Set `AI_ENGINE_URL` to the deployed AI service's base URL in the GIS API deployment. The complaint endpoint uses the AI category when its score is at least 0.45, saves the suggestion and analysis source, and falls back to the citizen-selected category if the service is unavailable. Severity remains a recommendation and must be reviewed by an officer. Duplicate candidates are found with TF-IDF/cosine similarity against up to 100 reports from the same ward in the past 90 days; suspected duplicates are linked for review and are still recorded.
+
+For pretrained inference, set `HF_TOKEN` as a secret in the AI service deployment with Hugging Face Inference Providers permission. The default text model is `MoritzLaurer/ModernBERT-large-zeroshot-v2.0`, a multilingual zero-shot classifier. The image endpoint uses `punchnami/resnet50-pothole-classification` by default and only identifies potholes; it does not classify all civic image categories. Both model names can be changed with `SAMADHAAN_CLASSIFIER_MODEL` and `SAMADHAAN_IMAGE_MODEL`. When a token is configured, complaint text and uploaded images are sent to Hugging Face Inference Providers; phone numbers and emails are masked in text first. Without a token, text analysis reports `rules_fallback`, duplicate matching still works, and image inference returns unavailable instead of a fabricated prediction.
+
+Deploy the AI service separately using `ai_engine/Dockerfile` (or run `uvicorn main:app --host 0.0.0.0 --port 8000` from `ai_engine`). Set `HF_TOKEN` and `PORT` as platform secrets/settings; never put provider credentials in source control. In the GIS API deployment, set `AI_ENGINE_URL` to the AI service URL. Apply `lib/db/migrations/2026-10-06-add-ai-analysis-fields.sql` to the target PostgreSQL database before enabling complaint creation with the new version.
+
+The repository previously tracked a root `.env` file. It has been removed from the Git index and is covered by `.gitignore`; keep local settings in `.env` and copy only variable names from `.env.example`. Because the former file was in a public repository, rotate any credentials it contained before deploying.
+
 ## Where Things Live
 
 - `artifacts/gis-map/` — citizen-facing React map app

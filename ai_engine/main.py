@@ -6,6 +6,10 @@ from datetime import datetime
 import os
 import re
 import math
+import json
+import asyncio
+import urllib.error
+import urllib.request
 import speech_recognition as sr
 from collections import Counter
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -21,16 +25,113 @@ app = FastAPI(
     version="1.0.0"
 )
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "AI_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://localhost:8080",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+ZERO_SHOT_MODEL = os.getenv("SAMADHAAN_CLASSIFIER_MODEL", "MoritzLaurer/ModernBERT-large-zeroshot-v2.0")
+CIVIC_LABELS = [
+    "road damage or potholes",
+    "water supply or leaking water pipes",
+    "garbage accumulation or sanitation issue",
+    "blocked drainage, sewage overflow, or waterlogging",
+    "electricity outage, exposed wires, or broken streetlights",
+    "another civic or public service issue",
+    "low safety risk that can be handled routinely",
+    "moderate public safety risk requiring timely attention",
+    "high public safety risk requiring urgent attention",
+    "critical immediate danger to life or public safety",
+]
+
+
+def inference_timeout() -> int:
+    try:
+        configured = int(os.getenv("HF_INFERENCE_TIMEOUT_SECONDS", "18"))
+    except ValueError:
+        configured = 18
+    return min(max(configured, 3), 30)
+
+
+def hf_inference(model: str, payload: dict):
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        return None
+
+    endpoint = f"https://router.huggingface.co/hf-inference/models/{model}"
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=inference_timeout()) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+
+
+def remote_civic_predictions(text: str):
+    result = hf_inference(
+        ZERO_SHOT_MODEL,
+        {
+            "inputs": security_validation(text)["masked_text"][:4000],
+            "parameters": {
+                "candidate_labels": CIVIC_LABELS,
+                "multi_label": True,
+            },
+        },
+    )
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        result = result[0]
+    if not isinstance(result, dict):
+        return None
+    labels = result.get("labels")
+    scores = result.get("scores")
+    if not isinstance(labels, list) or not isinstance(scores, list) or len(labels) != len(scores):
+        return None
+    return {str(label): float(score) for label, score in zip(labels, scores)}
+
+
+def hf_image_classification(image_bytes: bytes, content_type: str):
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        return None
+    model = os.getenv("SAMADHAAN_IMAGE_MODEL", "punchnami/resnet50-pothole-classification")
+    endpoint = f"https://router.huggingface.co/hf-inference/models/{model}"
+    request = urllib.request.Request(
+        endpoint,
+        data=image_bytes,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": content_type,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=inference_timeout()) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+    if isinstance(result, list) and result and isinstance(result[0], dict):
+        return result
+    return None
 
 
 # ============================================================
@@ -42,6 +143,7 @@ class ComplaintRequest(BaseModel):
     language: Optional[str] = "auto"
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    previous_complaints: Optional[List[str]] = None
 
 
 class TranslationRequest(BaseModel):
@@ -2198,6 +2300,8 @@ def analyze_complaint(request: ComplaintRequest):
             status_code=400,
             detail="Complaint cannot be empty"
         )
+    if len(complaint) > 5000:
+        raise HTTPException(status_code=413, detail="Complaint must be 5000 characters or fewer")
 
     language = (
         detect_language(complaint)
@@ -2222,6 +2326,50 @@ def analyze_complaint(request: ComplaintRequest):
 
     problem_identification = identify_problem(normalized_complaint)
 
+    duplicate_candidates = find_similar_complaints(
+        complaint,
+        (request.previous_complaints or [])[:100],
+    )
+
+    predictions = remote_civic_predictions(complaint)
+    category_map = {
+        CIVIC_LABELS[0]: "road",
+        CIVIC_LABELS[1]: "water",
+        CIVIC_LABELS[2]: "garbage",
+        CIVIC_LABELS[3]: "drainage",
+        CIVIC_LABELS[4]: "electricity",
+        CIVIC_LABELS[5]: "other",
+    }
+    predicted_category = None
+    model_confidence = None
+    model_name = "rules_fallback"
+    if predictions:
+        ranked_categories = sorted(
+            ((label, predictions[label]) for label in CIVIC_LABELS[:6] if label in predictions),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        ranked_severity = sorted(
+            ((label, predictions[label]) for label in CIVIC_LABELS[6:] if label in predictions),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        if ranked_categories:
+            category_label, model_confidence = ranked_categories[0]
+            predicted_category = category_map[category_label]
+            category_confidence = round(model_confidence, 4)
+        if ranked_severity and ranked_severity[0][1] >= 0.55:
+            severity_label = ranked_severity[0][0]
+            if severity_label.startswith("critical"):
+                priority, severity = "CRITICAL", "CRITICAL"
+            elif severity_label.startswith("high"):
+                priority, severity = "HIGH", "HIGH"
+            elif severity_label.startswith("moderate"):
+                priority, severity = "MEDIUM", "MEDIUM"
+            else:
+                priority, severity = "LOW", "LOW"
+        model_name = ZERO_SHOT_MODEL
+
     return {
         "success": True,
         "complaint": complaint,
@@ -2229,6 +2377,7 @@ def analyze_complaint(request: ComplaintRequest):
         "department": department,
         "department_confidence": department_confidence,
         "category": category,
+        "civic_category": predicted_category or category,
         "category_confidence": category_confidence,
         "priority": priority,
         "severity": severity,
@@ -2243,6 +2392,9 @@ def analyze_complaint(request: ComplaintRequest):
         "keywords": extract_keywords(complaint),
         "entities": extract_entities(complaint),
         "summary": summarize_complaint(complaint),
+        "duplicates": duplicate_candidates,
+        "model": model_name,
+        "analysis_source": "pretrained_zero_shot" if predictions else "rules_fallback",
         "sla": predict_sla(complaint, priority),
         "eta": predict_eta(complaint, priority),
         "security": security_validation(complaint)
@@ -2713,67 +2865,41 @@ def security(request: SecurityRequest):
 async def vision_detect(
     file: UploadFile = File(...)
 ):
+    content_type = (file.content_type or "").lower()
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    if content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Upload a JPEG, PNG, or WebP image")
 
-    filename = file.filename.lower()
+    contents = await file.read(8 * 1024 * 1024 + 1)
+    if len(contents) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image must be 8 MB or smaller")
+    if not contents:
+        raise HTTPException(status_code=400, detail="The uploaded image is empty")
 
-    allowed_extensions = [
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp"
-    ]
+    signatures = {
+        "image/jpeg": contents.startswith(b"\xff\xd8\xff"),
+        "image/png": contents.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/webp": len(contents) >= 12 and contents.startswith(b"RIFF") and contents[8:12] == b"WEBP",
+    }
+    if not signatures[content_type]:
+        raise HTTPException(status_code=400, detail="The file content does not match its image type")
 
-    if not any(
-        filename.endswith(ext)
-        for ext in allowed_extensions
-    ):
+    predictions = await asyncio.to_thread(hf_image_classification, contents, content_type)
+    if not predictions:
         raise HTTPException(
-            status_code=400,
-            detail="Only image files are supported"
+            status_code=503,
+            detail="Image inference is unavailable; configure HF_TOKEN and a supported image model",
         )
 
-    file_path = os.path.join(
-        UPLOAD_DIR,
-        file.filename
-    )
-
-    contents = await file.read()
-
-    with open(file_path, "wb") as f:
-        f.write(contents)
-
-    # Initial vision API.
-    # Real trained detection model can be plugged here.
-    detected_category = "Infrastructure Damage"
-
-    lower_name = filename
-
-    if "pothole" in lower_name:
-        detected_category = "Pothole"
-
-    elif "garbage" in lower_name:
-        detected_category = "Garbage"
-
-    elif "water" in lower_name:
-        detected_category = "Waterlogging"
-
-    elif "street" in lower_name:
-        detected_category = "Broken Streetlight"
-
-    elif "drain" in lower_name:
-        detected_category = "Overflowing Drain"
-
+    best = max(predictions, key=lambda prediction: float(prediction.get("score", 0)))
+    model = os.getenv("SAMADHAAN_IMAGE_MODEL", "punchnami/resnet50-pothole-classification")
     return {
         "success": True,
-        "filename": file.filename,
-        "detected_issue": detected_category,
-        "confidence": 0.70,
-        "model": "vision_pipeline_placeholder",
-        "message": (
-            "Image successfully received. "
-            "Connect a trained YOLO/vision model "
-            "for production detection."
-        )
+        "detected_issue": str(best.get("label", "unknown")),
+        "confidence": round(float(best.get("score", 0)), 4),
+        "model": model,
+        "analysis_source": "pretrained_image_classifier",
+        "human_review_required": True,
     }
 
 

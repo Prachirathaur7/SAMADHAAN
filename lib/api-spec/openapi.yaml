@@ -411,7 +411,28 @@ components:
           type: ["string", "null"]
         aiCategory:
           type: ["string", "null"]
-          description: AI-detected category from image or voice
+          description: AI-recommended civic category
+        aiDepartment:
+          type: ["string", "null"]
+          description: AI-recommended responsible department
+        aiConfidence:
+          type: ["number", "null"]
+          description: Confidence score for the AI category recommendation
+        aiSummary:
+          type: ["string", "null"]
+          description: Extractive short complaint summary
+        aiModel:
+          type: ["string", "null"]
+          description: Pretrained model identifier used for the analysis
+        aiSource:
+          type: ["string", "null"]
+          description: Whether analysis used a pretrained model or fallback rules
+        aiDuplicateOf:
+          type: ["string", "null"]
+          description: Complaint ID for a likely duplicate report, for officer review
+        aiDuplicateScore:
+          type: ["number", "null"]
+          description: TF-IDF text similarity score for the likely duplicate
       required: [id, lat, lng, category, severity, status, description, wardName, wardId, reporterCount, reportedAt]
 
     ComplaintInput:

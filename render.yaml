@@ -1,0 +1,39 @@
+databases:
+  - name: samadhaan-db
+    plan: free
+    databaseName: samadhaan
+    user: samadhaan
+
+services:
+  - type: web
+    name: samadhaan-api
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --prod=false --frozen-lockfile && pnpm --filter @workspace/api-server build
+    startCommand: pnpm --filter @workspace/db push && pnpm --filter @workspace/api-server start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: samadhaan-db
+          property: connectionString
+      - key: AI_ENGINE_URL
+        fromService:
+          name: samadhaan-ai
+          type: web
+          property: host
+      - key: CLIENT_URL
+        value: http://localhost:5173
+
+  - type: web
+    name: samadhaan-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./ai_engine/Dockerfile
+    dockerContext: ./ai_engine
+    healthCheckPath: /api/health
+    envVars:
+      - key: HF_TOKEN
+        value: ""

@@ -180,11 +180,22 @@ export interface Complaint {
   reportedAt: string;
   /** @nullable */
   imageUrl?: string | null;
-  /**
-     * AI-detected category from image or voice
-     * @nullable
-     */
+  /** AI-recommended civic category. @nullable */
   aiCategory?: string | null;
+  /** @nullable */
+  aiDepartment?: string | null;
+  /** @nullable */
+  aiConfidence?: number | null;
+  /** @nullable */
+  aiSummary?: string | null;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiSource?: string | null;
+  /** @nullable */
+  aiDuplicateOf?: string | null;
+  /** @nullable */
+  aiDuplicateScore?: number | null;
 }
 
 export type ComplaintInputCategory = typeof ComplaintInputCategory[keyof typeof ComplaintInputCategory];

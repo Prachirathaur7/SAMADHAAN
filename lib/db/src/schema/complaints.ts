@@ -1,4 +1,4 @@
-import { pgTable, text, decimal, integer, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, decimal, real, integer, timestamp, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -15,6 +15,13 @@ export const complaintsTable = pgTable("complaints", {
   reporterCount: integer("reporter_count").notNull().default(1),
   imageUrl: text("image_url"),
   aiCategory: text("ai_category"),
+  aiDepartment: text("ai_department"),
+  aiConfidence: real("ai_confidence"),
+  aiSummary: text("ai_summary"),
+  aiModel: text("ai_model"),
+  aiSource: text("ai_source"),
+  aiDuplicateOf: uuid("ai_duplicate_of"),
+  aiDuplicateScore: real("ai_duplicate_score"),
   reportedAt: timestamp("reported_at").notNull().defaultNow(),
 });
 

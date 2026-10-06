@@ -55,10 +55,28 @@ export function ReportProblemModal() {
         }
       },
       {
-        onSuccess: () => {
+        onSuccess: (complaint) => {
+          const analysis = complaint as typeof complaint & {
+            aiCategory?: string | null;
+            aiConfidence?: number | null;
+            aiSource?: string | null;
+            aiDuplicateOf?: string | null;
+          };
+          const categoryLabels: Record<string, string> = {
+            road: 'Road', water: 'Water', garbage: 'Garbage', drainage: 'Drainage',
+            electricity: 'Electricity', other: 'Other',
+          };
+          const aiNote = analysis.aiCategory && analysis.aiSource === 'pretrained_zero_shot'
+            ? ` AI recommends ${categoryLabels[analysis.aiCategory] ?? analysis.aiCategory}${analysis.aiConfidence != null ? ` (${Math.round(analysis.aiConfidence * 100)}% confidence)` : ''}; ${complaint.severity} priority.`
+            : analysis.aiCategory
+              ? ` Rule-based fallback suggests ${categoryLabels[analysis.aiCategory] ?? analysis.aiCategory}; ${complaint.severity} priority.`
+            : ` The report was saved with ${complaint.severity} priority.`;
+          const duplicateNote = analysis.aiDuplicateOf
+            ? ` It may duplicate report ${analysis.aiDuplicateOf}; an officer can review it.`
+            : '';
           toast({
             title: "Report Submitted",
-            description: "Your grievance has been recorded and will be verified.",
+            description: `Your grievance has been recorded.${aiNote}${duplicateNote}`,
           });
           queryClient.invalidateQueries({ queryKey: ['/api/map/stats'] });
           queryClient.invalidateQueries({ queryKey: ['/api/map/clusters'] });
@@ -146,6 +164,10 @@ export function ReportProblemModal() {
                 </FormItem>
               )}
             />
+
+            <p className="-mt-4 text-xs text-white/50">
+              When pretrained analysis is enabled, complaint text is sent to the configured AI provider. Predictions are advisory; avoid including personal details.
+            </p>
 
             <div className="flex items-center gap-2 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-200">
               <MapPin className="w-4 h-4 text-blue-400 shrink-0" />

@@ -1,9 +1,70 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { complaintsTable, wardsTable, emergencyServicesTable } from "@workspace/db";
-import { eq, and, gte, sql, or } from "drizzle-orm";
+import { eq, and, gte, sql, or, desc } from "drizzle-orm";
 
 const router = Router();
+
+const configuredAiEngineUrl = process.env.AI_ENGINE_URL?.replace(/\/+$/, "") ?? "";
+// Render's fromService host reference provides a hostname without a scheme.
+const AI_ENGINE_URL = configuredAiEngineUrl && !/^https?:\/\//i.test(configuredAiEngineUrl)
+  ? `https://${configuredAiEngineUrl}`
+  : configuredAiEngineUrl;
+const AI_REQUEST_TIMEOUT_MS = 25_000;
+
+type AiAnalysis = {
+  success?: boolean;
+  category?: string;
+  civic_category?: string;
+  department?: string;
+  category_confidence?: number;
+  confidence?: number;
+  severity?: string;
+  priority?: string;
+  summary?: string;
+  model?: string;
+  analysis_source?: string;
+  duplicates?: { index: number; similarity: number; is_duplicate: boolean }[];
+};
+
+async function analyzeComplaint(description: string, previousComplaints: string[]): Promise<AiAnalysis | null> {
+  if (!AI_ENGINE_URL) return null;
+
+  try {
+    const response = await fetch(`${AI_ENGINE_URL}/api/complaint/analyze`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        complaint: description,
+        language: "auto",
+        previous_complaints: previousComplaints.slice(0, 100),
+      }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as AiAnalysis;
+  } catch {
+    return null;
+  }
+}
+
+function categoryFromAi(value?: string): string | null {
+  const normalized = value?.toLowerCase() ?? "";
+  if (/road|pothole|street|transport/.test(normalized)) return "road";
+  if (/water|leak|pipeline/.test(normalized)) return "water";
+  if (/garbage|waste|sanitation|litter/.test(normalized)) return "garbage";
+  if (/drain|sewer|flood|waterlog/.test(normalized)) return "drainage";
+  if (/electric|power|light|wire/.test(normalized)) return "electricity";
+  if (/general|other|unclassified/.test(normalized)) return "other";
+  return null;
+}
+
+function normalizedSeverity(value?: string): string | null {
+  const severity = value?.toLowerCase();
+  return severity && ["low", "medium", "high", "critical"].includes(severity)
+    ? severity
+    : null;
+}
 
 // ── Haversine distance helper (km) ──────────────────────────────────────────
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -331,10 +392,19 @@ router.post("/complaints", async (req, res) => {
     imageUrl?: string;
   };
 
-  if (!lat || !lng || !category || !description) {
+  if (
+    typeof lat !== "number" || !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+    typeof lng !== "number" || !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+    typeof category !== "string" || !category ||
+    typeof description !== "string" || description.trim().length < 10 || description.length > 5000
+  ) {
     res.status(400).json({ error: "lat, lng, category, description are required" });
     return;
   }
+
+  const submittedCategory = ["road", "water", "garbage", "drainage", "electricity", "other"].includes(category)
+    ? category
+    : "other";
 
   // Naive ward assignment: find nearest ward
   const wards = await db.select().from(wardsTable);
@@ -349,7 +419,29 @@ router.post("/complaints", async (req, res) => {
     nearestWard = { wardId: sorted[0].wardId, wardName: sorted[0].wardName };
   }
 
-  // Simple AI severity heuristic
+  const duplicateWindowStart = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const recentComplaints = await db
+    .select({ id: complaintsTable.id, description: complaintsTable.description })
+    .from(complaintsTable)
+    .where(and(
+      eq(complaintsTable.wardId, nearestWard.wardId),
+      gte(complaintsTable.reportedAt, duplicateWindowStart),
+    ))
+    .orderBy(desc(complaintsTable.reportedAt))
+    .limit(100);
+
+  const ai = await analyzeComplaint(description.trim(), recentComplaints.map((complaint) => complaint.description));
+  const aiCategory = categoryFromAi(ai?.civic_category ?? ai?.category);
+  const aiConfidence = ai?.category_confidence ?? ai?.confidence;
+  const aiModel = ai?.analysis_source ?? null;
+  const duplicate = ai?.duplicates?.find((candidate) => candidate.is_duplicate);
+  const matchedDuplicate = duplicate ? recentComplaints[duplicate.index] : undefined;
+  const effectiveCategory = aiModel === "pretrained_zero_shot" && aiCategory &&
+    typeof aiConfidence === "number" && aiConfidence >= 0.45
+    ? aiCategory
+    : submittedCategory;
+
+  // Conservative fallback used when the AI service is not configured or unavailable.
   const text = description.toLowerCase();
   let severity = "medium";
   if (text.includes("flood") || text.includes("fire") || text.includes("collapse") || text.includes("emergency")) {
@@ -360,18 +452,30 @@ router.post("/complaints", async (req, res) => {
     severity = "low";
   }
 
+  severity = normalizedSeverity(ai?.severity ?? ai?.priority) ?? severity;
+
   const [inserted] = await db
     .insert(complaintsTable)
     .values({
       lat: lat.toString(),
       lng: lng.toString(),
-      category,
+      category: effectiveCategory,
       severity,
       status: "open",
-      description,
+      description: description.trim(),
       wardId: nearestWard.wardId,
       wardName: nearestWard.wardName,
       imageUrl: imageUrl ?? null,
+      aiCategory: aiCategory,
+      aiDepartment: ai?.department ?? null,
+      aiConfidence: ai?.analysis_source === "pretrained_zero_shot" && typeof aiConfidence === "number"
+        ? aiConfidence
+        : null,
+      aiSummary: ai?.summary ?? null,
+      aiModel: ai?.model ?? null,
+      aiSource: aiModel,
+      aiDuplicateOf: matchedDuplicate?.id ?? null,
+      aiDuplicateScore: duplicate?.similarity ?? null,
     })
     .returning();
 
