@@ -31,3 +31,7 @@ Thumbs.db
 .env
 node_modules/
 venv/
+
+.env
+node_modules/
+venv/
