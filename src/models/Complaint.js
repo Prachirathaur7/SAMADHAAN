@@ -92,6 +92,18 @@ const complaintSchema = new mongoose.Schema(
             default: "pending"
         },
 
+        // AI duplicate matches are suggestions; they never prevent registration.
+        aiDuplicateOf: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Complaint"
+        },
+
+        aiDuplicateScore: {
+            type: Number,
+            min: 0,
+            max: 1
+        },
+
         aiAnalysis: {
             aiCategory: String,
             aiPriority: String,

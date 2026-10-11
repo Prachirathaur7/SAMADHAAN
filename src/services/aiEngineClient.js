@@ -52,6 +52,66 @@ async function callEngine(text, latitude, longitude) {
     }
 }
 
+async function findDuplicate(text, complaint) {
+    const location = complaint.location || {};
+    const ward = typeof location.ward === "string" ? location.ward.trim() : "";
+    const lat = Number(location.latitude);
+    const lng = Number(location.longitude);
+    const hasGeo = Number.isFinite(lat) && Number.isFinite(lng) &&
+        Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+
+    // Keep comparisons local to reduce false positives across different cities.
+    let scope;
+    if (ward) {
+        scope = { "location.ward": ward };
+    } else if (hasGeo) {
+        scope = {
+            geo: {
+                $near: {
+                    $geometry: { type: "Point", coordinates: [lng, lat] },
+                    $maxDistance: 3000
+                }
+            }
+        };
+    } else {
+        return null;
+    }
+
+    const candidates = await complaint.constructor.find({
+        ...scope,
+        _id: { $ne: complaint._id },
+        createdAt: { $gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
+        status: { $ne: "rejected" }
+    }).select("title description").sort({ createdAt: -1 }).limit(50).lean();
+
+    if (!candidates.length) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+        const res = await fetch(`${AI_URL}/api/complaint/similarity`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                complaint: text,
+                previous_complaints: candidates.map((item) => `${item.title} ${item.description}`)
+            }),
+            signal: controller.signal
+        });
+        if (!res.ok) return null;
+        const payload = await res.json();
+        const duplicate = (payload.results || []).find((item) => item.is_duplicate === true);
+        if (!duplicate || !Number.isInteger(duplicate.index)) return null;
+        const match = candidates[duplicate.index];
+        return match ? { id: match._id, score: Number(duplicate.similarity) } : null;
+    } catch {
+        // Duplicate detection is advisory; never block complaint registration.
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function enrichComplaint(complaint) {
     try {
         const loc = complaint.location || {};
@@ -70,6 +130,24 @@ async function enrichComplaint(complaint) {
             hasGeo ? lat : undefined,
             hasGeo ? lng : undefined
         );
+
+        // Similarity is an advisory check and is independent of classification.
+        // Preserve complaint submission even if the AI similarity endpoint is down.
+        if (AI_URL) {
+            let duplicate = null;
+            try {
+                duplicate = await findDuplicate(
+                    `${complaint.title} ${complaint.description}`,
+                    complaint
+                );
+            } catch (err) {
+                console.warn("AI duplicate check unavailable:", err.message);
+            }
+            if (duplicate) {
+                complaint.aiDuplicateOf = duplicate.id;
+                complaint.aiDuplicateScore = duplicate.score;
+            }
+        }
 
         complaint.aiStatus = result.status;
 
