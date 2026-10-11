@@ -112,6 +112,7 @@ const State = {
 // ====================== Session / Auth ======================
 const SESSION_KEY = 'samadhaan-session';
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
+const API_BASE_URL = (window.SAMADHAAN_API_BASE_URL || 'https://samadhan-backend-yfo8.onrender.com').replace(/\/+$/, '');
 const OTP_DEMO = '123456';
 const OTP_TTL = 120; // seconds
 const MAX_OTP_RETRIES = 5;
@@ -141,8 +142,8 @@ function getSession() {
   } catch { return null; }
 }
 
-function createSession(role, user) {
-  const session = { role, user, createdAt: Date.now(), expiresAt: Date.now() + SESSION_TTL };
+function createSession(role, user, token = null) {
+  const session = { role, user, token, createdAt: Date.now(), expiresAt: Date.now() + SESSION_TTL };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   return session;
 }
@@ -198,9 +199,22 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 const deptName = (id) => { const d = DEPARTMENTS.find(x=>x.id===id); return d?d.name:id; };
 const deptIcon = (id) => { const d = DEPARTMENTS.find(x=>x.id===id); return d?d.icon:'📋'; };
-function toast(msg){ const t=$('#toast'); t.innerHTML='✓ '+msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+function toast(msg){ const t=$('#toast'); t.textContent='✓ '+msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),4000); }
 function openModal(id){ $('#'+id).classList.add('show'); }
 function closeModal(id){ $('#'+id).classList.remove('show'); }
+
+async function apiRequest(path, options = {}, authenticated = true) {
+  const session = getSession();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (authenticated && session?.token) headers.Authorization = `Bearer ${session.token}`;
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || payload.detail || `Request failed (${response.status})`);
+  }
+  return payload;
+}
 
 // ====================== Render ======================
 function render(){
@@ -339,7 +353,7 @@ function citizenHome(){
   `;
 }
 
-let wizardStep=1, wizData={desc:'',dept:'roads',loc:'',file:''};
+let wizardStep=1, wizData={desc:'',dept:'roads',loc:'',file:'',lat:null,lng:null};
 function citizenReport(){
   const steps=['Problem','Location','Evidence','Review'];
   const analyzing=wizAnalyzing;
@@ -379,12 +393,12 @@ function citizenReport(){
       <div style="display:flex;gap:14px;margin-bottom:20px"><span style="font:700 12px Manrope;color:#92a7b8">04</span><div><h2 style="font:700 20px Manrope;margin-bottom:4px">Review your complaint</h2><p style="color:var(--muted);font-size:12px">Please check the details before submitting.</p></div></div>
       <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
         <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Problem</span><strong>${wizData.desc||'Civic issue reported'}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Department</span><strong>${deptIcon(wizData.dept)} ${deptName(wizData.dept)} <span class="pill pill-blue">AI match 94%</span></strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Department</span><strong>AI assignment after submission</strong></div>
         <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Location</span><strong>📍 ${wizData.loc||'Kanpur, Uttar Pradesh'}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Priority</span><strong><span class="pill pill-red">High priority</span></strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Priority</span><strong>AI assessment after submission</strong></div>
         <div style="display:flex;justify-content:space-between;padding:12px 14px;font-size:11px"><span style="color:var(--muted)">Evidence</span><strong>${wizData.file||'No evidence attached'}</strong></div>
       </div>
-      <div style="display:flex;gap:8px;padding:10px;background:#f0f8fc;border-radius:8px;color:#39718e;font-size:11px;align-items:flex-start;margin-top:14px">🤖 <span><strong>AI prediction — please verify.</strong> You can change the department after submitting.</span></div>
+      <div style="display:flex;gap:8px;padding:10px;background:#f0f8fc;border-radius:8px;color:#39718e;font-size:11px;align-items:flex-start;margin-top:14px">🤖 <span><strong>AI analysis runs when you submit.</strong> The saved response will show its category, department, priority, and any duplicate warning returned by the service.</span></div>
     `}
     </div>
     <div class="wfoot">
@@ -399,17 +413,95 @@ let wizAnalyzing=false;
 function wizNext(){
   if(wizardStep===1){ wizData.desc=$('#wiz-desc').value; if(!wizData.desc.trim()){toast('Please describe the problem first');return;} }
   if(wizardStep===2){ wizData.loc=$('#wiz-loc').value; }
-  if(wizardStep===3){ wizAnalyzing=true; renderCitizen(); setTimeout(()=>{ wizAnalyzing=false; wizardStep=4; renderCitizen(); },900); return; }
+  if(wizardStep===3){ wizAnalyzing=false; wizardStep=4; renderCitizen(); return; }
   wizardStep=Math.min(wizardStep+1,4); renderCitizen();
 }
 function wizBack(){ wizardStep=Math.max(wizardStep-1,1); renderCitizen(); }
 function voiceInput(){ wizData.desc='मेरे इलाके में सड़क पर बहुत बड़ा गड्ढा है'; renderCitizen(); toast('Voice transcription added. You can edit it.'); }
-function useLocation(){ wizData.loc='Civil Lines, Kanpur, Uttar Pradesh'; renderCitizen(); toast('Demo location selected'); }
-function submitComplaint(){
-  const id=`SAM-2026-UP-${String(125+Math.floor(Math.random()*700)).padStart(6,'0')}`;
-  State.complaints.unshift({id,title:wizData.desc||'Civic issue reported',dept:wizData.dept,status:'Pending',priority:'High',updated:'Just now',score:91,location:wizData.loc||'Kanpur, Uttar Pradesh'});
-  wizardStep=1; wizData={desc:'',dept:'roads',loc:'',file:''};
-  citizenView='complaints'; renderCitizen(); toast('Complaint submitted successfully');
+function useLocation(){
+  if (!navigator.geolocation) { toast('This browser does not support location access'); return; }
+  toast('Requesting your location…');
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      wizData.lat = position.coords.latitude;
+      wizData.lng = position.coords.longitude;
+      wizData.loc = wizData.loc || 'Current location';
+      renderCitizen();
+      toast('Location added to this report');
+    },
+    () => toast('Location was not shared. Enter the address manually.'),
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+  );
+}
+async function submitComplaint(){
+  const session = getSession();
+  if (!session?.token) {
+    toast('Sign in with your account before submitting a live complaint');
+    return;
+  }
+  const description = wizData.desc.trim();
+  const address = wizData.loc.trim();
+  if (!description || !address) {
+    toast('Add the complaint details and location before submitting');
+    return;
+  }
+
+  const submitButton = document.querySelector('.wfoot .btn-primary');
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Submitting and analyzing…'; }
+
+  try {
+    const response = await apiRequest('/api/complaints', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: description.length > 120 ? `${description.slice(0, 117)}…` : description,
+        description,
+        location: {
+          address,
+          ward: State.user?.ward || State.user?.wardName || undefined,
+          ...(Number.isFinite(wizData.lat) ? { latitude: wizData.lat } : {}),
+          ...(Number.isFinite(wizData.lng) ? { longitude: wizData.lng } : {}),
+        },
+      }),
+    });
+    const saved = response.complaint || response.data?.complaint || response.data || response;
+    const duplicate = saved.duplicate || saved.aiDuplicate || saved.possibleDuplicate;
+    const duplicateId = (typeof duplicate === 'string' ? duplicate : null)
+      || saved.aiDuplicateOf || saved.duplicateOf || saved.duplicateComplaintId
+      || duplicate?.complaintId || duplicate?.id || duplicate?._id || null;
+    const category = saved.category || saved.aiCategory || saved.ai?.category || wizData.dept;
+    const rawPriority = saved.priority || saved.severity || saved.ai?.priority || 'Medium';
+    const priority = String(rawPriority).charAt(0).toUpperCase() + String(rawPriority).slice(1).toLowerCase();
+    const locationValue = typeof saved.location === 'string' ? saved.location : saved.location?.address;
+    const item = {
+      id: saved.complaintId || saved._id || saved.id || saved.ticketId,
+      title: saved.title || saved.description || description,
+      dept: saved.department || saved.aiDepartment || saved.ai?.department || category,
+      status: String(saved.status || 'Pending').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      priority,
+      updated: 'Just now',
+      score: Number.isFinite(saved.aiConfidence) ? Math.round(saved.aiConfidence * 100) : null,
+      location: locationValue || address,
+      aiStatus: saved.aiStatus || saved.ai?.status || null,
+      aiSummary: saved.aiSummary || saved.summary || saved.ai?.summary || null,
+      duplicateId,
+      isDuplicate: Boolean(saved.isDuplicate || saved.aiIsDuplicate || duplicateId),
+    };
+    if (!item.id) throw new Error('The server saved a response without a complaint ID.');
+
+    State.complaints.unshift(item);
+    wizardStep=1; wizData={desc:'',dept:'roads',loc:'',file:'',lat:null,lng:null};
+    citizenView='complaints'; renderCitizen();
+    const aiResult = item.aiStatus === 'failed'
+      ? 'AI analysis failed; the complaint was still saved.'
+      : `AI: ${category}, ${priority} priority${item.dept ? `, ${item.dept}` : ''}.`;
+    const duplicateNote = item.isDuplicate
+      ? ` Possible duplicate of ${item.duplicateId || 'an existing complaint'}; flagged for review.`
+      : '';
+    toast(`Complaint ${item.id} saved. ${aiResult}${duplicateNote}`);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : 'Could not submit the complaint. Please try again.');
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = '✓ Submit Complaint'; }
+  }
 }
 function reportWithDept(id){ wizData.dept=id; citizenView='report'; wizardStep=1; renderCitizen(); }
 
@@ -433,9 +525,12 @@ function citizenComplaints(){
   </div>`;
 }
 function complaintCard(c){
+  const aiSummary = c.aiSummary ? `<small style="display:block;margin-top:5px;color:var(--muted)">AI summary: ${escapeHtml(c.aiSummary)}</small>` : '';
+  const duplicateBadge = c.isDuplicate ? `<small style="display:block;margin-top:5px;color:#c9534d">Possible duplicate${c.duplicateId ? ` of ${escapeHtml(c.duplicateId)}` : ''} · review suggested</small>` : '';
+  const score = Number.isFinite(c.score) ? `${c.score}<span style="font-size:10px;color:#9baab7">/100</span>` : '<span style="font-size:10px;color:#9baab7">Pending</span>';
   return `<div class="ccard">
-    <div class="ccard-top"><span class="cid">${c.id} · ${c.updated}</span><span class="pill ${c.status==='Resolved'?'pill-green':c.priority==='High'?'pill-red':'pill-orange'}">${c.status}</span></div>
-    <div class="ccard-main"><div class="ccard-ico">${deptIcon(c.dept)}</div><div><h4>${c.title}</h4><p>${deptName(c.dept)} · 📍 ${c.location}</p></div><div class="ccard-score"><small>AI priority score</small><strong>${c.score}<span style="font-size:10px;color:#9baab7">/100</span></strong></div></div>
+    <div class="ccard-top"><span class="cid">${escapeHtml(c.id)} · ${escapeHtml(c.updated)}</span><span class="pill ${c.status==='Resolved'?'pill-green':c.priority==='High'?'pill-red':'pill-orange'}">${escapeHtml(c.status)}</span></div>
+    <div class="ccard-main"><div class="ccard-ico">${deptIcon(c.dept)}</div><div><h4>${escapeHtml(c.title)}</h4><p>${escapeHtml(deptName(c.dept))} · 📍 ${escapeHtml(c.location)}</p>${aiSummary}${duplicateBadge}</div><div class="ccard-score"><small>AI priority score</small><strong>${score}</strong></div></div>
     <div class="ccard-bot"><span>⏰ SLA: ${c.status==='Resolved'?'Completed':c.priority==='High'?'18h remaining':'2d remaining'}</span>
     <span><button class="btn btn-outline" style="height:28px;font-size:10px;padding:0 10px" onclick="toast('Opened ${c.id}')">View Details →</button>${c.status!=='Resolved'?`<button class="btn" style="height:28px;font-size:10px;padding:0 10px;color:var(--green)" onclick="resolveComplaint('${c.id}')">✓ Mark Resolved</button>`:''}</span></div>
   </div>`;
@@ -524,7 +619,7 @@ function renderAuth(role) {
       <div class="field"><label>Preferred Language</label><select id="reg-lang"><option value="en">English</option><option value="hi">हिन्दी</option><option value="mr">मराठी</option><option value="ur">اردو</option><option value="bn">বাংলা</option><option value="ta">தமிழ்</option><option value="te">తెలుగు</option></select></div>
       <button class="btn btn-primary btn-full" style="background:${accentColor}" onclick="registerCitizen()">Send OTP & Create Account</button>
       <div style="text-align:center;margin-top:12px"><a style="font-size:11px;cursor:pointer;color:${accentColor}" onclick="authState.mode='login';render()">Already registered? Login →</a></div>
-      <div class="auth-note">🔒 Demo authentication — use <strong>${OTP_DEMO}</strong> as OTP.</div>
+      <div class="auth-note">🔒 Email login checks your live account. Phone OTP and account registration are demo-only in this build.</div>
     </div>`;
   }
 
@@ -566,7 +661,7 @@ function renderAuth(role) {
     <div class="field"><label>Password</label><input id="auth-pass" type="password" placeholder="Enter password"></div>
     <button class="btn btn-blue btn-full" onclick="loginDirect()">Login with Email</button>
     <div style="text-align:center;margin-top:12px"><a style="font-size:11px;cursor:pointer;color:${accentColor}" onclick="authState.mode='register';render()">New user? Register →</a></div>
-    <div class="auth-note">🔒 Demo authentication — use <strong>${OTP_DEMO}</strong> as OTP.</div>
+    <div class="auth-note">🔒 Email login checks your live account. Phone OTP and account registration are demo-only in this build.</div>
   </div>`;
 }
 
@@ -717,7 +812,7 @@ function resendOtp() {
   toast('New OTP sent (Demo: ' + OTP_DEMO + ')');
 }
 
-function loginDirect() {
+async function loginDirect() {
   const e = $('#auth-email');
   const p = $('#auth-pass');
 
@@ -731,31 +826,68 @@ function loginDirect() {
     return;
   }
 
-  const DEMO_EMAIL = 'citizen@samadhaan.gov.in';
-  const DEMO_PASSWORD = 'citizen123';
-
-  if (
-    e.value.trim().toLowerCase() !== DEMO_EMAIL ||
-    p.value !== DEMO_PASSWORD
-  ) {
-    toast('Invalid email or password');
-    return;
+  const button = document.querySelector('.auth-screen .btn-blue');
+  if (button) { button.disabled = true; button.textContent = 'Signing in…'; }
+  try {
+    const response = await apiRequest('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: e.value.trim(), password: p.value }),
+    }, false);
+    const data = response.data || response;
+    const token = data.token || response.token;
+    if (!token) throw new Error('The server did not return a sign-in token.');
+    const userData = data.user || response.user || {
+      name: data.name || e.value.trim().split('@')[0],
+      email: e.value.trim(),
+      role: 'CITIZEN',
+    };
+    createSession('citizen', userData, token);
+    State.user = userData;
+    State.role = 'citizen';
+    State.complaints = [];
+    await loadMyComplaints();
+    citizenView = 'home';
+    render();
+    toast('Signed in to the live Samadhaan service');
+  } catch (error) {
+    toast(error instanceof Error ? error.message : 'Sign-in failed. Please try again.');
+    if (button) { button.disabled = false; button.textContent = 'Login with Email'; }
   }
+}
 
-  const userData = {
-    name: 'Prachi Sharma',
-    mobile: '9876543210',
-    email: e.value.trim(),
-    location: 'Kanpur, Uttar Pradesh',
-    role: 'CITIZEN'
+function normalizeApiComplaint(saved) {
+  const duplicate = saved.duplicate || saved.aiDuplicate || saved.possibleDuplicate;
+  const duplicateId = (typeof duplicate === 'string' ? duplicate : null)
+    || saved.aiDuplicateOf || saved.duplicateOf || saved.duplicateComplaintId
+    || duplicate?.complaintId || duplicate?.id || duplicate?._id || null;
+  const category = saved.category || saved.aiCategory || saved.ai?.category || 'other';
+  const rawPriority = saved.priority || saved.severity || saved.ai?.priority || 'Medium';
+  const locationValue = typeof saved.location === 'string' ? saved.location : saved.location?.address;
+  return {
+    id: saved.complaintId || saved._id || saved.id || saved.ticketId,
+    title: saved.title || saved.description || 'Civic complaint',
+    dept: saved.department || saved.aiDepartment || saved.ai?.department || category,
+    status: String(saved.status || 'Pending').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    priority: String(rawPriority).charAt(0).toUpperCase() + String(rawPriority).slice(1).toLowerCase(),
+    updated: saved.updatedAt ? new Date(saved.updatedAt).toLocaleString() : 'Recently submitted',
+    score: Number.isFinite(saved.aiConfidence) ? Math.round(saved.aiConfidence * 100) : null,
+    location: locationValue || 'Location not provided',
+    aiStatus: saved.aiStatus || saved.ai?.status || null,
+    aiSummary: saved.aiSummary || saved.summary || saved.ai?.summary || null,
+    duplicateId,
+    isDuplicate: Boolean(saved.isDuplicate || saved.aiIsDuplicate || duplicateId),
   };
+}
 
-  createSession('citizen', userData);
-  State.user = userData;
-  State.role = 'citizen';
-  citizenView = 'home';
-  render();
-  toast('Login successful!');
+async function loadMyComplaints() {
+  try {
+    const response = await apiRequest('/api/complaints/my');
+    const records = response.complaints || response.data?.complaints || response.data;
+    if (Array.isArray(records)) State.complaints = records.map(normalizeApiComplaint).filter((item) => item.id);
+    else State.complaints = [];
+  } catch {
+    State.complaints = [];
+  }
 }
 
 function logout() {

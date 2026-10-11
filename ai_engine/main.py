@@ -331,10 +331,13 @@ def clean_text(text: str) -> str:
             text
         )
 
+    # Keep Unicode letters so Devanagari and other supported scripts remain
+    # available to TF-IDF duplicate matching.
     text = re.sub(
-        r"[^a-zA-Z0-9\s]",
+        r"[^\w\s]|_",
         " ",
-        text
+        text,
+        flags=re.UNICODE
     )
 
     text = re.sub(
