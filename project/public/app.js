@@ -110,6 +110,7 @@ const State = {
 };
 
 // ====================== Session / Auth ======================
+const API_BASE_URL = 'https://samadhan-backend-yfo8.onrender.com';
 const SESSION_KEY = 'samadhaan-session';
 const SESSION_TTL = 30 * 60 * 1000; // 30 minutes
 const OTP_DEMO = '123456';
@@ -139,6 +140,45 @@ function getSession() {
     if (Date.now() > s.expiresAt) { localStorage.removeItem(SESSION_KEY); return null; }
     return s;
   } catch { return null; }
+}
+
+async function apiRequest(path, options = {}) {
+  const session = getSession();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (session?.user?.token) headers.Authorization = `Bearer ${session.user.token}`;
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || `Request failed (${response.status})`);
+  return payload;
+}
+
+function mapBackendComplaint(c) {
+  const statuses = { submitted: 'Pending', in_progress: 'In Progress', resolved: 'Resolved', rejected: 'Rejected' };
+  return {
+    id: c._id, title: c.title, dept: c.department || c.aiAnalysis?.aiCategory || c.category || 'other',
+    status: statuses[c.status] || c.status || 'Pending',
+    priority: (c.aiAnalysis?.aiPriority || c.priority || 'medium').replace(/^./, x => x.toUpperCase()),
+    updated: new Date(c.updatedAt || c.createdAt || Date.now()).toLocaleString(),
+    score: Math.round((c.priorityScore || 0) * 100),
+    location: c.location?.address || c.location?.ward || 'Location not provided',
+    aiStatus: c.aiStatus, aiSummary: c.aiAnalysis?.summary,
+    duplicateOf: c.aiDuplicateOf?._id || c.aiDuplicateOf || null, duplicateScore: c.aiDuplicateScore
+  };
+}
+
+let loadedComplaintsForToken = null;
+async function refreshMyComplaints() {
+  const session = getSession();
+  if (!session?.user?.token || loadedComplaintsForToken === session.user.token) return;
+  try {
+    const result = await apiRequest('/api/complaints/my');
+    State.complaints = (result.complaints || []).map(mapBackendComplaint);
+    loadedComplaintsForToken = session.user.token;
+    if (State.role === 'citizen') renderCitizen();
+  } catch (error) {
+    if (/token|unauthorized|expired/i.test(error.message)) { clearSession(); State.complaints = []; loadedComplaintsForToken = null; render(); }
+    else toast(`Could not load complaints: ${error.message}`);
+  }
 }
 
 function createSession(role, user) {
@@ -196,7 +236,7 @@ function stopOtpTimer() {
 // ====================== Helpers ======================
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
-const deptName = (id) => { const d = DEPARTMENTS.find(x=>x.id===id); return d?d.name:id; };
+const deptName = (id) => { const d = DEPARTMENTS.find(x=>x.id===id); if(d) return d.name; return ({roads:'Roads & Transport',water:'Water Supply',electricity:'Electricity',sanitation:'Sanitation',public_safety:'Public Safety',other:'Other'})[id] || id; };
 const deptIcon = (id) => { const d = DEPARTMENTS.find(x=>x.id===id); return d?d.icon:'📋'; };
 function toast(msg){ const t=$('#toast'); t.innerHTML='✓ '+msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
 function openModal(id){ $('#'+id).classList.add('show'); }
@@ -339,14 +379,14 @@ function citizenHome(){
   `;
 }
 
-let wizardStep=1, wizData={desc:'',dept:'roads',loc:'',file:''};
+let wizardStep=1, wizData={title:'',desc:'',dept:'roads',loc:'',latitude:null,longitude:null,file:''};
 function citizenReport(){
   const steps=['Problem','Location','Evidence','Review'];
   const analyzing=wizAnalyzing;
   return `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
     <div><span class="pill pill-blue">NEW GRIEVANCE</span><h1 style="font-family:Manrope;font-size:26px;margin:8px 0 4px">Report a Problem</h1><p style="color:var(--muted);font-size:13px">It takes less than two minutes.</p></div>
-    <span class="pill pill-gray">Demo workflow</span>
+    <span class="pill pill-green">Connected to SAMADHAAN</span>
   </div>
   <div class="wizard" style="margin:0 auto">
     <div class="wsteps">${steps.map((s,i)=>`<div class="wstep ${wizardStep>i+1?'done':''} ${wizardStep===i+1?'cur':''}"><span class="num">${wizardStep>i+1?'✓':i+1}</span><span>${s}</span>${i<3?'<span class="line"></span>':''}</div>`).join('')}</div>
@@ -357,7 +397,8 @@ function citizenReport(){
       <div style="width:200px;height:4px;background:#e7eef3;border-radius:6px;overflow:hidden;margin:18px auto"><div style="width:55%;height:100%;background:var(--blue);animation:load 1.2s infinite"></div></div>
     </div>`: wizardStep===1?`
       <div style="display:flex;gap:14px;margin-bottom:20px"><span style="font:700 12px Manrope;color:#92a7b8">01</span><div><h2 style="font:700 20px Manrope;margin-bottom:4px">What is the problem?</h2><p style="color:var(--muted);font-size:12px">Describe the issue or speak it out.</p></div></div>
-      <div class="field"><label>Describe your problem</label><textarea id="wiz-desc" placeholder="For example: There is a large pothole near the main market...">${wizData.desc}</textarea></div>
+      <div class="field"><label>Short title</label><input id="wiz-title" maxlength="120" placeholder="e.g. Large pothole near school" value="${wizData.title||''}"></div>
+      <div class="field"><label>Describe your problem</label><textarea id="wiz-desc" maxlength="2000" placeholder="For example: There is a large pothole near the main market...">${wizData.desc}</textarea></div>
       <div style="display:flex;gap:12px;padding:8px 0">
         <button class="btn btn-outline" onclick="voiceInput()">🎤 Tap & Speak</button>
         <span style="margin-left:auto;font-size:10px;color:#98a9b6;align-self:center" id="char-count">0/500</span>
@@ -374,22 +415,22 @@ function citizenReport(){
     `: wizardStep===3?`
       <div style="display:flex;gap:14px;margin-bottom:20px"><span style="font:700 12px Manrope;color:#92a7b8">03</span><div><h2 style="font:700 20px Manrope;margin-bottom:4px">Add Evidence <span style="font-size:10px;color:#9aa9b6">(optional)</span></h2><p style="color:var(--muted);font-size:12px">Photos or videos help officers understand the situation.</p></div></div>
       <div class="upload-area" onclick="toast('File picker would open here')"><div class="up-ico">📤</div><strong>Upload photos or video</strong><span>PNG, JPG or MP4 · Max 10 MB</span></div>
-      <div style="display:flex;gap:8px;padding:10px;background:#eff9f4;border-radius:8px;color:#42806f;font-size:11px;align-items:flex-start;margin-top:14px">🔒 Your evidence is encrypted and only shared with the assigned department.</div>
+      <div style="display:flex;gap:8px;padding:10px;background:#eff9f4;border-radius:8px;color:#42806f;font-size:11px;align-items:flex-start;margin-top:14px">Evidence upload is not connected yet; submit the complaint text and location for now.</div>
     `:`
       <div style="display:flex;gap:14px;margin-bottom:20px"><span style="font:700 12px Manrope;color:#92a7b8">04</span><div><h2 style="font:700 20px Manrope;margin-bottom:4px">Review your complaint</h2><p style="color:var(--muted);font-size:12px">Please check the details before submitting.</p></div></div>
       <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Problem</span><strong>${wizData.desc||'Civic issue reported'}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Department</span><strong>${deptIcon(wizData.dept)} ${deptName(wizData.dept)} <span class="pill pill-blue">AI match 94%</span></strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Location</span><strong>📍 ${wizData.loc||'Kanpur, Uttar Pradesh'}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Priority</span><strong><span class="pill pill-red">High priority</span></strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Title & details</span><strong>${wizData.title}: ${wizData.desc}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Department</span><strong>AI will suggest after submission</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Location</span><strong>📍 ${wizData.loc||'Location not provided'}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--muted)">Priority</span><strong>AI will assess after submission</strong></div>
         <div style="display:flex;justify-content:space-between;padding:12px 14px;font-size:11px"><span style="color:var(--muted)">Evidence</span><strong>${wizData.file||'No evidence attached'}</strong></div>
       </div>
-      <div style="display:flex;gap:8px;padding:10px;background:#f0f8fc;border-radius:8px;color:#39718e;font-size:11px;align-items:flex-start;margin-top:14px">🤖 <span><strong>AI prediction — please verify.</strong> You can change the department after submitting.</span></div>
+      <div style="display:flex;gap:8px;padding:10px;background:#f0f8fc;border-radius:8px;color:#39718e;font-size:11px;align-items:flex-start;margin-top:14px">🤖 <span><strong>AI analysis runs after submission.</strong> Review its category and priority on your complaint card.</span></div>
     `}
     </div>
     <div class="wfoot">
       ${wizardStep>1?'<button class="btn btn-outline" onclick="wizBack()">← Back</button>':''}
-      <span style="margin-left:auto;font-size:10px;color:#98a9b6;display:flex;align-items:center;gap:4px">🔒 Progress saved in demo</span>
+      <span style="margin-left:auto;font-size:10px;color:#98a9b6;display:flex;align-items:center;gap:4px">🔒 Your details will be sent securely</span>
       <button class="btn btn-primary" onclick="${wizardStep===4?'submitComplaint()':'wizNext()'}">${wizardStep===4?'✓ Submit Complaint':'Continue →'}</button>
     </div>
   </div>`;
@@ -397,19 +438,42 @@ function citizenReport(){
 
 let wizAnalyzing=false;
 function wizNext(){
-  if(wizardStep===1){ wizData.desc=$('#wiz-desc').value; if(!wizData.desc.trim()){toast('Please describe the problem first');return;} }
+  if(wizardStep===1){ wizData.title=$('#wiz-title').value.trim(); wizData.desc=$('#wiz-desc').value.trim(); if(!wizData.title){toast('Please add a short title');return;} if(!wizData.desc){toast('Please describe the problem first');return;} }
   if(wizardStep===2){ wizData.loc=$('#wiz-loc').value; }
   if(wizardStep===3){ wizAnalyzing=true; renderCitizen(); setTimeout(()=>{ wizAnalyzing=false; wizardStep=4; renderCitizen(); },900); return; }
   wizardStep=Math.min(wizardStep+1,4); renderCitizen();
 }
 function wizBack(){ wizardStep=Math.max(wizardStep-1,1); renderCitizen(); }
 function voiceInput(){ wizData.desc='मेरे इलाके में सड़क पर बहुत बड़ा गड्ढा है'; renderCitizen(); toast('Voice transcription added. You can edit it.'); }
-function useLocation(){ wizData.loc='Civil Lines, Kanpur, Uttar Pradesh'; renderCitizen(); toast('Demo location selected'); }
-function submitComplaint(){
-  const id=`SAM-2026-UP-${String(125+Math.floor(Math.random()*700)).padStart(6,'0')}`;
-  State.complaints.unshift({id,title:wizData.desc||'Civic issue reported',dept:wizData.dept,status:'Pending',priority:'High',updated:'Just now',score:91,location:wizData.loc||'Kanpur, Uttar Pradesh'});
-  wizardStep=1; wizData={desc:'',dept:'roads',loc:'',file:''};
-  citizenView='complaints'; renderCitizen(); toast('Complaint submitted successfully');
+function useLocation(){
+  if (!navigator.geolocation) { toast('Location is not supported by this browser'); return; }
+  toast('Requesting location permission…');
+  navigator.geolocation.getCurrentPosition(position => {
+    wizData.latitude = position.coords.latitude;
+    wizData.longitude = position.coords.longitude;
+    wizData.loc = wizData.loc || 'Current location';
+    renderCitizen(); toast('Current coordinates added');
+  }, () => toast('Could not access location. Enter the address manually.'), { enableHighAccuracy: true, timeout: 10000 });
+}
+async function submitComplaint(){
+  const session = getSession();
+  if (!session?.user?.token) { toast('Please log in again to submit'); render(); return; }
+  const button = document.querySelector('.wfoot .btn-primary');
+  if (button) { button.disabled = true; button.textContent = 'Submitting…'; }
+  const location = {};
+  if (wizData.loc.trim()) location.address = wizData.loc.trim();
+  if (wizData.latitude != null && wizData.longitude != null) { location.latitude = wizData.latitude; location.longitude = wizData.longitude; }
+  try {
+    const result = await apiRequest('/api/complaints', { method: 'POST', body: JSON.stringify({ title: wizData.title, description: wizData.desc, location }) });
+    const mapped = mapBackendComplaint(result.complaint);
+    State.complaints = [mapped, ...State.complaints.filter(item => item.id !== mapped.id)];
+    loadedComplaintsForToken = session.user.token;
+    wizardStep=1; wizData={title:'',desc:'',dept:'roads',loc:'',latitude:null,longitude:null,file:''};
+    citizenView='complaints'; renderCitizen(); toast('Complaint submitted. AI analysis is shown below.');
+  } catch (error) {
+    toast(`Could not submit complaint: ${error.message}`);
+    if (button) { button.disabled = false; button.textContent = '✓ Submit Complaint'; }
+  }
 }
 function reportWithDept(id){ wizData.dept=id; citizenView='report'; wizardStep=1; renderCitizen(); }
 
@@ -436,7 +500,8 @@ function complaintCard(c){
   return `<div class="ccard">
     <div class="ccard-top"><span class="cid">${c.id} · ${c.updated}</span><span class="pill ${c.status==='Resolved'?'pill-green':c.priority==='High'?'pill-red':'pill-orange'}">${c.status}</span></div>
     <div class="ccard-main"><div class="ccard-ico">${deptIcon(c.dept)}</div><div><h4>${c.title}</h4><p>${deptName(c.dept)} · 📍 ${c.location}</p></div><div class="ccard-score"><small>AI priority score</small><strong>${c.score}<span style="font-size:10px;color:#9baab7">/100</span></strong></div></div>
-    <div class="ccard-bot"><span>⏰ SLA: ${c.status==='Resolved'?'Completed':c.priority==='High'?'18h remaining':'2d remaining'}</span>
+    ${c.aiStatus ? `<div style="padding:8px 12px;background:#f0f8fc;font-size:11px;color:#39718e">🤖 AI: ${c.aiStatus}${c.aiSummary ? ` · ${c.aiSummary}` : ''}${c.duplicateOf ? `<br>⚠️ Possible duplicate of ${c.duplicateOf} (${Math.round((c.duplicateScore||0)*100)}% similarity). Please review; submission was not blocked.` : ''}</div>` : ''}
+    <div class="ccard-bot"><span>⏰ Status: ${c.status} · Priority: ${c.priority}</span>
     <span><button class="btn btn-outline" style="height:28px;font-size:10px;padding:0 10px" onclick="toast('Opened ${c.id}')">View Details →</button>${c.status!=='Resolved'?`<button class="btn" style="height:28px;font-size:10px;padding:0 10px;color:var(--green)" onclick="resolveComplaint('${c.id}')">✓ Mark Resolved</button>`:''}</span></div>
   </div>`;
 }
@@ -516,15 +581,16 @@ function renderAuth(role) {
     <div class="auth-screen">
       <div class="auth-logo"><img src="${logoImg}" onerror="this.style.display='none'" alt="Samadhaan"><h2>Register as Citizen</h2><p>Create your Samadhaan account</p></div>
       <div class="field"><label>Full Name</label><input id="reg-name" placeholder="Enter your full name"></div>
-      <div class="field"><label>Mobile Number</label><input id="reg-mobile" placeholder="10-digit mobile number" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
-      <div class="field"><label>Email</label><input id="reg-email" placeholder="your@email.com"></div>
+      <div class="field"><label>Phone number</label><input id="reg-mobile" placeholder="8–15 digits" maxlength="15" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+      <div class="field"><label>Email</label><input id="reg-email" type="email" placeholder="your@email.com"></div>
+      <div class="field"><label>Password (at least 8 characters)</label><input id="reg-pass" type="password" minlength="8" placeholder="Create a password"></div>
       <div class="field"><label>State</label><select id="reg-state"><option>Uttar Pradesh</option><option>Maharashtra</option><option>Delhi</option><option>Karnataka</option><option>Tamil Nadu</option><option>West Bengal</option><option>Gujarat</option><option>Rajasthan</option></select></div>
       <div class="field"><label>District</label><input id="reg-district" placeholder="e.g. Kanpur"></div>
       <div class="field"><label>City</label><input id="reg-city" placeholder="e.g. Kanpur"></div>
       <div class="field"><label>Preferred Language</label><select id="reg-lang"><option value="en">English</option><option value="hi">हिन्दी</option><option value="mr">मराठी</option><option value="ur">اردو</option><option value="bn">বাংলা</option><option value="ta">தமிழ்</option><option value="te">తెలుగు</option></select></div>
-      <button class="btn btn-primary btn-full" style="background:${accentColor}" onclick="registerCitizen()">Send OTP & Create Account</button>
+      <button class="btn btn-primary btn-full" style="background:${accentColor}" onclick="registerCitizen()">Create Account</button>
       <div style="text-align:center;margin-top:12px"><a style="font-size:11px;cursor:pointer;color:${accentColor}" onclick="authState.mode='login';render()">Already registered? Login →</a></div>
-      <div class="auth-note">🔒 Demo authentication — use <strong>${OTP_DEMO}</strong> as OTP.</div>
+      <div class="auth-note">Your account is created on the SAMADHAAN backend.</div>
     </div>`;
   }
 
@@ -559,14 +625,11 @@ function renderAuth(role) {
       <button class="${authState.mode==='login'?'active':''}" onclick="authState.mode='login';render()">Login</button>
       <button class="${authState.mode==='register'?'active':''}" onclick="authState.mode='register';render()">Register</button>
     </div>
-    <div class="field"><label>Mobile Number</label><div style="display:flex;align-items:center;border:1px solid var(--border);border-radius:8px;overflow:hidden"><span style="padding:0 12px;font-weight:700;color:var(--ink);background:var(--bg-soft,#f4f8fb);border-right:1px solid var(--border);font-size:13px;height:42px;display:flex;align-items:center">+91</span><input id="auth-mobile" style="border:none;border-radius:0;flex:1" placeholder="10-digit mobile number" maxlength="10" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'');if(this.value.length===10)this.blur()" onkeydown="if(event.key==='Enter')sendOtpCitizen()"></div></div>
-    <button class="btn btn-primary btn-full" style="background:${accentColor}" onclick="sendOtpCitizen()">Send OTP</button>
-    <div style="text-align:center;font-size:11px;color:var(--muted);margin:14px 0">OR</div>
-    <div class="field"><label>Email</label><input id="auth-email" placeholder="your@email.com"></div>
-    <div class="field"><label>Password</label><input id="auth-pass" type="password" placeholder="Enter password"></div>
-    <button class="btn btn-blue btn-full" onclick="loginDirect()">Login with Email</button>
+    <div class="field"><label>Email</label><input id="auth-email" type="email" placeholder="your@email.com" onkeydown="if(event.key==='Enter')loginDirect()"></div>
+    <div class="field"><label>Password</label><input id="auth-pass" type="password" placeholder="Enter password" onkeydown="if(event.key==='Enter')loginDirect()"></div>
+    <button class="btn btn-primary btn-full" style="background:${accentColor}" onclick="loginDirect()">Login</button>
     <div style="text-align:center;margin-top:12px"><a style="font-size:11px;cursor:pointer;color:${accentColor}" onclick="authState.mode='register';render()">New user? Register →</a></div>
-    <div class="auth-note">🔒 Demo authentication — use <strong>${OTP_DEMO}</strong> as OTP.</div>
+    <div class="auth-note">Sign in with your registered SAMADHAAN account.</div>
   </div>`;
 }
 
@@ -641,24 +704,19 @@ function sendOtpAdmin() {
   toast('OTP sent (Demo: ' + OTP_DEMO + ')');
 }
 
-function registerCitizen() {
-  const n = $('#reg-name');
-  const m = $('#reg-mobile');
-  if (!n || !n.value.trim()) { toast('Please enter your full name'); return; }
-  if (!m || m.value.length < 10) { toast('Please enter a valid 10-digit mobile number'); return; }
-  authState.pendingData = {
-    mobile: m.value,
-    name: n.value,
-    email: $('#reg-email')?.value || '',
-    state: $('#reg-state')?.value || 'Uttar Pradesh',
-    location: ($('#reg-district')?.value || 'Kanpur') + ', ' + ($('#reg-state')?.value || 'Uttar Pradesh'),
-  };
-  authState.step = 'otp';
-  authState.otpRetries = 0;
-  authState.otpLocked = false;
-  startOtpTimer();
-  render();
-  toast('OTP sent for verification (Demo: ' + OTP_DEMO + ')');
+async function registerCitizen() {
+  const name = $('#reg-name')?.value.trim(), phone = $('#reg-mobile')?.value.trim();
+  const email = $('#reg-email')?.value.trim(), password = $('#reg-pass')?.value;
+  if (!name || !phone || !email || !password) { toast('Please complete all required fields'); return; }
+  if (phone.length < 8 || phone.length > 15) { toast('Phone number must contain 8 to 15 digits'); return; }
+  if (password.length < 8) { toast('Password must be at least 8 characters'); return; }
+  try {
+    const result = await apiRequest('/api/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, email, password }) });
+    const user = { ...result.data.user, token: result.data.token };
+    createSession('citizen', user); State.user = user; State.role = 'citizen'; State.complaints = [];
+    loadedComplaintsForToken = null; citizenView = 'home'; authState.mode = 'login'; render();
+    await refreshMyComplaints(); toast('Account created and logged in');
+  } catch (error) { toast(`Could not create account: ${error.message}`); }
 }
 
 function verifyOtp() {
@@ -717,45 +775,17 @@ function resendOtp() {
   toast('New OTP sent (Demo: ' + OTP_DEMO + ')');
 }
 
-function loginDirect() {
-  const e = $('#auth-email');
-  const p = $('#auth-pass');
-
-  if (!e || !/^\S+@\S+\.\S+$/.test(e.value.trim())) {
-    toast('Please enter a valid email address');
-    return;
-  }
-
-  if (!p || !p.value) {
-    toast('Please enter your password');
-    return;
-  }
-
-  const DEMO_EMAIL = 'citizen@samadhaan.gov.in';
-  const DEMO_PASSWORD = 'citizen123';
-
-  if (
-    e.value.trim().toLowerCase() !== DEMO_EMAIL ||
-    p.value !== DEMO_PASSWORD
-  ) {
-    toast('Invalid email or password');
-    return;
-  }
-
-  const userData = {
-    name: 'Prachi Sharma',
-    mobile: '9876543210',
-    email: e.value.trim(),
-    location: 'Kanpur, Uttar Pradesh',
-    role: 'CITIZEN'
-  };
-
-  createSession('citizen', userData);
-  State.user = userData;
-  State.role = 'citizen';
-  citizenView = 'home';
-  render();
-  toast('Login successful!');
+async function loginDirect() {
+  const email = $('#auth-email')?.value.trim(), password = $('#auth-pass')?.value;
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) { toast('Please enter a valid email address'); return; }
+  if (!password) { toast('Please enter your password'); return; }
+  try {
+    const result = await apiRequest('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    const user = { ...result.data.user, token: result.data.token };
+    createSession('citizen', user); State.user = user; State.role = 'citizen'; State.complaints = [];
+    loadedComplaintsForToken = null; citizenView = 'home'; authState.mode = 'login'; render();
+    await refreshMyComplaints(); toast('Login successful');
+  } catch (error) { toast(`Login failed: ${error.message}`); }
 }
 
 function logout() {
@@ -1129,9 +1159,10 @@ function init(){
   if(lang) State.language=lang;
   // Restore session
   const s = getSession();
-  if (s) { State.role = s.role; State.user = s.user; }
+  if (s) { State.role = s.role; State.user = s.user; if (s.role === 'citizen') State.complaints = []; }
   setTimeout(()=>{ const sp=$('#splash'); sp.style.opacity='0'; setTimeout(()=>sp.style.display='none',500); },2000);
   render();
+  if (s?.role === 'citizen') setTimeout(refreshMyComplaints, 0);
 }
 window.addEventListener('DOMContentLoaded',init);
 
