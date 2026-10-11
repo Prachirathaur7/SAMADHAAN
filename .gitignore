@@ -27,3 +27,7 @@ Thumbs.db
 *.tmp
 *.temp
 .vscode/settings.json
+
+.env
+node_modules/
+venv/
