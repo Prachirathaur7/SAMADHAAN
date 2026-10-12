@@ -412,6 +412,25 @@ components:
         aiCategory:
           type: ["string", "null"]
           description: AI-detected category from image or voice
+        aiPriority:
+          type: ["string", "null"]
+          enum: [low, medium, high, critical, null]
+        aiSummary:
+          type: ["string", "null"]
+        aiDepartment:
+          type: ["string", "null"]
+        aiConfidence:
+          type: ["number", "null"]
+          description: Classification confidence, from 0 to 1
+        aiStatus:
+          type: string
+          enum: [completed, unavailable]
+        aiDuplicateOf:
+          type: ["string", "null"]
+          format: uuid
+        aiDuplicateScore:
+          type: ["number", "null"]
+          description: Similarity score, from 0 to 1
       required: [id, lat, lng, category, severity, status, description, wardName, wardId, reporterCount, reportedAt]
 
     ComplaintInput:

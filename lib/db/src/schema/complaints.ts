@@ -15,6 +15,13 @@ export const complaintsTable = pgTable("complaints", {
   reporterCount: integer("reporter_count").notNull().default(1),
   imageUrl: text("image_url"),
   aiCategory: text("ai_category"),
+  aiPriority: text("ai_priority"),
+  aiSummary: text("ai_summary"),
+  aiDepartment: text("ai_department"),
+  aiConfidence: decimal("ai_confidence", { precision: 5, scale: 4 }),
+  aiStatus: text("ai_status").notNull().default("unavailable"),
+  aiDuplicateOf: uuid("ai_duplicate_of"),
+  aiDuplicateScore: decimal("ai_duplicate_score", { precision: 5, scale: 4 }),
   reportedAt: timestamp("reported_at").notNull().defaultNow(),
 });
 

@@ -55,10 +55,13 @@ export function ReportProblemModal() {
         }
       },
       {
-        onSuccess: () => {
+        onSuccess: (complaint) => {
+          const aiDetails = complaint.aiStatus === 'completed'
+            ? `AI routed this to ${complaint.aiDepartment || complaint.category} with ${complaint.aiPriority || complaint.severity} priority.`
+            : 'Your grievance has been recorded. AI analysis is temporarily unavailable.';
           toast({
-            title: "Report Submitted",
-            description: "Your grievance has been recorded and will be verified.",
+            title: complaint.aiStatus === 'completed' ? "AI Analysis Complete" : "Report Submitted",
+            description: aiDetails,
           });
           queryClient.invalidateQueries({ queryKey: ['/api/map/stats'] });
           queryClient.invalidateQueries({ queryKey: ['/api/map/clusters'] });

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { complaintsTable, wardsTable, emergencyServicesTable } from "@workspace/db";
 import { eq, and, gte, sql, or } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -25,6 +26,103 @@ const SEVERITY_WEIGHT: Record<string, number> = {
   high: 0.75,
   critical: 1.0,
 };
+
+const CATEGORIES = new Set(["road", "water", "garbage", "drainage", "electricity", "other"]);
+const PRIORITIES = new Set(["low", "medium", "high", "critical"]);
+const AI_ENGINE_URL = process.env.AI_ENGINE_URL?.replace(/\/+$/, "");
+// Free Render services may need tens of seconds to wake after idle periods.
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS ?? 65000);
+
+function serializeComplaint(row: typeof complaintsTable.$inferSelect) {
+  return {
+    ...row,
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    aiConfidence: row.aiConfidence === null ? null : Number(row.aiConfidence),
+    aiDuplicateScore: row.aiDuplicateScore === null ? null : Number(row.aiDuplicateScore),
+    reportedAt: row.reportedAt.toISOString(),
+  };
+}
+
+function aiCategoryToMapCategory(value: unknown): string | null {
+  const category = String(value ?? "").toLowerCase().replace(/[_-]+/g, " ");
+  // Check waterlogging and drainage before generic water so flood complaints
+  // are routed to drainage rather than water supply.
+  if (/waterlog|water logged|flood|drain|sewer|sewage|overflow/.test(category)) return "drainage";
+  if (/pothole|road|footpath|bridge|traffic/.test(category)) return "road";
+  if (/water leak|water supply|water leakage|drinking water/.test(category)) return "water";
+  if (/garbage|waste|sanitation|trash|litter/.test(category)) return "garbage";
+  if (/electric|power|street ?light|transformer/.test(category)) return "electricity";
+  return null;
+}
+
+async function callAi(path: string, body: Record<string, unknown>): Promise<any | null> {
+  if (!AI_ENGINE_URL) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${AI_ENGINE_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      logger.warn({ status: response.status, path }, "AI engine request failed");
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    logger.warn({ error, path }, "AI engine unavailable; using safe fallback");
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Lightweight per-IP guard for the public report form. It complements the
+// platform-level rate limits and avoids an extra runtime dependency.
+const reportAttempts = new Map<string, { count: number; resetAt: number }>();
+function allowReport(ip: string): boolean {
+  const now = Date.now();
+  const current = reportAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    reportAttempts.set(ip, { count: 1, resetAt: now + 10 * 60 * 1000 });
+    if (reportAttempts.size > 5000) {
+      for (const [key, value] of reportAttempts) if (value.resetAt <= now) reportAttempts.delete(key);
+    }
+    return true;
+  }
+  if (current.count >= 10) return false;
+  current.count += 1;
+  return true;
+}
+
+async function findAiDuplicate(description: string, lat: number, lng: number, category: string) {
+  if (!AI_ENGINE_URL) return null;
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const rows = await db.select().from(complaintsTable)
+    .where(and(gte(complaintsTable.reportedAt, since), sql`${complaintsTable.status} != 'resolved'`))
+    .orderBy(sql`${complaintsTable.reportedAt} DESC`).limit(100);
+  const candidates = rows
+    .map((row) => ({ row, distance: haversineKm(lat, lng, parseFloat(row.lat), parseFloat(row.lng)) }))
+    .filter(({ row, distance }) => distance <= 3 && (row.category === category || distance <= 0.5))
+    .slice(0, 30);
+  if (!candidates.length) return null;
+
+  const result = await callAi("/api/complaint/similarity", {
+    complaint: description,
+    previous_complaints: candidates.map(({ row }) => row.description),
+  });
+  const match = result?.results?.find((item: any) => item?.is_duplicate === true && Number.isInteger(item.index));
+  const previous = match ? candidates[match.index]?.row : null;
+  if (!previous) return null;
+  const score = Number(match.similarity);
+  return {
+    id: previous.id,
+    score: Number.isFinite(score) ? Math.min(1, Math.max(0, score)).toFixed(4) : null,
+  };
+}
 
 // ── GET /api/map/heatmap ─────────────────────────────────────────────────────
 router.get("/map/heatmap", async (req, res) => {
@@ -312,12 +410,7 @@ router.get("/complaints", async (req, res) => {
     .orderBy(sql`${complaintsTable.reportedAt} DESC`);
 
   res.json(
-    rows.map((r) => ({
-      ...r,
-      lat: parseFloat(r.lat),
-      lng: parseFloat(r.lng),
-      reportedAt: r.reportedAt.toISOString(),
-    })),
+    rows.map(serializeComplaint),
   );
 });
 
@@ -331,10 +424,33 @@ router.post("/complaints", async (req, res) => {
     imageUrl?: string;
   };
 
-  if (!lat || !lng || !category || !description) {
-    res.status(400).json({ error: "lat, lng, category, description are required" });
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  if (!allowReport(ip)) {
+    res.status(429).json({ error: "Too many reports from this connection. Please try again later." });
     return;
   }
+
+  if (
+    typeof lat !== "number" || !Number.isFinite(lat) || Math.abs(lat) > 90 ||
+    typeof lng !== "number" || !Number.isFinite(lng) || Math.abs(lng) > 180 ||
+    typeof category !== "string" || !CATEGORIES.has(category) ||
+    typeof description !== "string" || description.trim().length < 10 || description.trim().length > 2000
+  ) {
+    res.status(400).json({ error: "A valid location, category, and description (10–2000 characters) are required" });
+    return;
+  }
+  if (imageUrl !== undefined && imageUrl !== null) {
+    try {
+      if (typeof imageUrl !== "string" || imageUrl.length > 2048 || new URL(imageUrl).protocol !== "https:") {
+        throw new Error("Invalid image URL");
+      }
+    } catch {
+      res.status(400).json({ error: "imageUrl must be a valid HTTPS URL" });
+      return;
+    }
+  }
+
+  const cleanDescription = description.trim();
 
   // Naive ward assignment: find nearest ward
   const wards = await db.select().from(wardsTable);
@@ -349,15 +465,29 @@ router.post("/complaints", async (req, res) => {
     nearestWard = { wardId: sorted[0].wardId, wardName: sorted[0].wardName };
   }
 
-  // Simple AI severity heuristic
-  const text = description.toLowerCase();
-  let severity = "medium";
-  if (text.includes("flood") || text.includes("fire") || text.includes("collapse") || text.includes("emergency")) {
-    severity = "critical";
-  } else if (text.includes("major") || text.includes("dangerous") || text.includes("urgent")) {
-    severity = "high";
-  } else if (text.includes("minor") || text.includes("small")) {
-    severity = "low";
+  const aiResult = await callAi("/api/complaint/analyze", {
+    complaint: cleanDescription,
+    language: "auto",
+    latitude: lat,
+    longitude: lng,
+  });
+  const ai = aiResult?.success === true ? aiResult : null;
+  const aiCategory = typeof ai?.category === "string" ? ai.category : null;
+  const mappedCategory = aiCategoryToMapCategory(aiCategory) ?? category;
+  const aiSeverity = String(ai?.severity ?? "").toLowerCase();
+  const severity = PRIORITIES.has(aiSeverity) ? aiSeverity : "medium";
+  const priorityResult = String(ai?.priority ?? "").toLowerCase();
+  const aiPriority = ai && PRIORITIES.has(priorityResult) ? priorityResult : null;
+  const aiConfidenceValue = Number(ai?.category_confidence);
+  const aiConfidence = Number.isFinite(aiConfidenceValue)
+    ? Math.min(1, Math.max(0, aiConfidenceValue)).toFixed(4)
+    : null;
+
+  let duplicate: Awaited<ReturnType<typeof findAiDuplicate>> = null;
+  try {
+    duplicate = await findAiDuplicate(cleanDescription, lat, lng, mappedCategory);
+  } catch (error) {
+    logger.warn({ error }, "AI duplicate check failed; report will still be recorded");
   }
 
   const [inserted] = await db
@@ -365,22 +495,25 @@ router.post("/complaints", async (req, res) => {
     .values({
       lat: lat.toString(),
       lng: lng.toString(),
-      category,
+      category: mappedCategory,
       severity,
       status: "open",
-      description,
+      description: cleanDescription,
       wardId: nearestWard.wardId,
       wardName: nearestWard.wardName,
       imageUrl: imageUrl ?? null,
+      aiCategory,
+      aiPriority,
+      aiSummary: typeof ai?.summary === "string" ? ai.summary.slice(0, 500) : null,
+      aiDepartment: typeof ai?.department === "string" ? ai.department.slice(0, 120) : null,
+      aiConfidence,
+      aiStatus: ai ? "completed" : "unavailable",
+      aiDuplicateOf: duplicate?.id ?? null,
+      aiDuplicateScore: duplicate?.score ?? null,
     })
     .returning();
 
-  res.status(201).json({
-    ...inserted,
-    lat: parseFloat(inserted.lat),
-    lng: parseFloat(inserted.lng),
-    reportedAt: inserted.reportedAt.toISOString(),
-  });
+  res.status(201).json(serializeComplaint(inserted));
 });
 
 // ── GET /api/complaints/:id ──────────────────────────────────────────────────
@@ -407,12 +540,7 @@ router.get("/complaints/:id", async (req, res) => {
       return;
     }
 
-    res.json({
-      ...row,
-      lat: parseFloat(row.lat),
-      lng: parseFloat(row.lng),
-      reportedAt: row.reportedAt.toISOString(),
-    });
+    res.json(serializeComplaint(row));
   } catch (error) {
     console.error("Failed to fetch complaint:", error);
     res.status(500).json({ error: "Failed to fetch complaint" });

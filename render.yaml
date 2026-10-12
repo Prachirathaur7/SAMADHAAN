@@ -1,0 +1,29 @@
+databases:
+  - name: samadhaan-gis-db
+    databaseName: samadhaan_gis
+    user: samadhaan_gis
+    plan: free
+    region: oregon
+
+services:
+  - type: web
+    name: samadhaan-gis-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @workspace/api-server build
+    startCommand: pnpm --filter @workspace/db push && pnpm --filter @workspace/api-server start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: samadhaan-gis-db
+          property: connectionString
+      - key: CLIENT_URL
+        value: https://samadhaan-kappa.vercel.app,https://samadhaan-git-main-prachi-b86b.vercel.app
+      - key: AI_ENGINE_URL
+        value: https://samadhaan-ai-2hji.onrender.com
+      - key: AI_TIMEOUT_MS
+        value: "65000"

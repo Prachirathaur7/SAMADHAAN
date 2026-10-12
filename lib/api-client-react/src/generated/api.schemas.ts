@@ -185,6 +185,13 @@ export interface Complaint {
      * @nullable
      */
   aiCategory?: string | null;
+  aiPriority?: ComplaintSeverity | null;
+  aiSummary?: string | null;
+  aiDepartment?: string | null;
+  aiConfidence?: number | null;
+  aiStatus?: 'completed' | 'unavailable';
+  aiDuplicateOf?: string | null;
+  aiDuplicateScore?: number | null;
 }
 
 export type ComplaintInputCategory = typeof ComplaintInputCategory[keyof typeof ComplaintInputCategory];
